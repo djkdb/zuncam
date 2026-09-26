@@ -1,0 +1,14 @@
+{
+  // Cloudflare Workers 배포 설정 (OpenNext 어댑터)
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "campus-os",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "observability": { "enabled": true }
+  // ANTHROPIC_API_KEY 는 여기에 쓰지 않는다 → `npx wrangler secret put ANTHROPIC_API_KEY`
+}

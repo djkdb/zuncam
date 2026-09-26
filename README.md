@@ -79,6 +79,16 @@ npm run sim         # 시뮬레이션 (불변식 15k회, 하루/1주일 재생, 
 목 서버 사용: `MODE=ok npm run mock:ai` 후 `ANTHROPIC_API_KEY=test ANTHROPIC_BASE_URL=http://localhost:4010 npm run dev`.
 `ok` 모드는 검증을 확인하려고 일부러 틀린 시각과 없는 id를 섞어 반환합니다.
 
+## Cloudflare 배포
+
+```bash
+npx wrangler login
+npx wrangler secret put ANTHROPIC_API_KEY   # 선택
+npm run cf:deploy                           # → https://campus-os.<계정>.workers.dev
+```
+
+배포 전 로컬 확인은 `npm run cf:preview` (실제 Workers 런타임). GitHub 연결 자동 배포, 주의사항(API 키 남용 방지 등)은 [docs/deploy-cloudflare.md](docs/deploy-cloudflare.md).
+
 ## 구조
 
 ```
@@ -104,6 +114,7 @@ src/app/api/ai       briefing · now · parse · conflicts · status
 | [docs/simulation-report.md](docs/simulation-report.md) | 최신 시뮬레이션 결과 (자동 생성) |
 | [docs/decisions.md](docs/decisions.md) | 설계 결정과 이유 |
 | [docs/future-plan.md](docs/future-plan.md) | 향후 확장 |
+| [docs/deploy-cloudflare.md](docs/deploy-cloudflare.md) | Cloudflare Workers 배포 방법과 검증 결과 |
 | [docs/demo-script.md](docs/demo-script.md) | 2~3분 데모, 중간/최종 발표 구성 |
 | [docs/phase1-analysis.md](docs/phase1-analysis.md) | 착수 시 레포 분석 |
 
