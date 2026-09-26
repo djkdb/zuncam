@@ -59,6 +59,7 @@ export function adviseNow(ctx: CampusContext, plan: ActionPlan, priorities: Prio
 
   if (now >= plan.windowEnd) {
     const tomorrow = ctx.weekBlocks.find((b) => b.date !== ctx.now.date);
+    if (tomorrow) times.add(fromMinutes(tomorrow.start));
     return base({
       mode: "day_over",
       headline: "오늘 계획 시간이 끝났어요. 쉬고 내일을 준비하세요.",
@@ -122,7 +123,7 @@ export function adviseNow(ctx: CampusContext, plan: ActionPlan, priorities: Prio
     const a = ctx.openAssignments.find((x) => x.id === current.refId);
     const end = current.end;
     const reasons = [
-      a ? `${a.due.text} · 예상 소요 ${formatDuration(a.estimatedMinutes)}` : current.reason,
+      a ? `${a.due.text} · 남은 작업 ${formatDuration(a.remainingMinutes)}` : current.reason,
       ...(item ? [`우선순위 점수 ${item.score}점 (${item.reason})`] : []),
     ];
     if (nextStop) reasons.push(`${josa(nextStop.label, "이/가")} ${fromMinutes(nextStop.at)}이므로 지금부터 약 ${formatDuration(Math.min(end, nextStop.at) - now)} 확보할 수 있습니다.`);

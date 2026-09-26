@@ -47,7 +47,7 @@ export function QuickAdd({ open, onClose }: { open: boolean; onClose: () => void
     const d = phase.draft;
     let next: ParsedDraft = d;
     if (d.kind === "event") {
-      next = { kind: "assignment", notes: [], assignment: { title: d.event.title, subject: "", dueDate: d.event.date, dueTime: d.event.startTime, estimatedMinutes: 60, importance: 2, status: "todo", memo: d.event.memo } };
+      next = { kind: "assignment", notes: [], assignment: { title: d.event.title, subject: "", dueDate: d.event.date, dueTime: d.event.startTime, estimatedMinutes: 60, importance: 2, status: "todo", memo: d.event.memo, progress: [] } };
     } else if (d.kind === "assignment") {
       next = { kind: "event", notes: [], event: { title: d.assignment.title, date: d.assignment.dueDate, startTime: "18:00", endTime: "19:00", location: "", category: "etc", memo: "", travelMinutes: null } };
     }

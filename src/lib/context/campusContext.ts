@@ -30,6 +30,13 @@ export interface FixedBlock {
 }
 
 export interface AssignmentView extends Assignment {
+  /** 진행 기록 합계 / 오늘 기록 */
+  loggedMinutes: number;
+  loggedToday: number;
+  /** 남은 작업(분). 기록이 예상을 넘었는데 완료가 아니면 마무리용 10분으로 본다 */
+  remainingMinutes: number;
+  /** 진행 기록이 예상 소요시간을 넘음 → 예상 수정 필요 */
+  overEstimate: boolean;
   minutesLeft: number;
   due: DueLabel;
   overdue: boolean;
@@ -62,6 +69,8 @@ export interface CampusContext {
   /** 미완료 과제 (마감순) */
   openAssignments: AssignmentView[];
   doneCount: number;
+  /** 오늘 기록된 작업 합계 — 완료된 과제 포함 */
+  loggedTodayTotal: number;
   conflicts: Conflict[];
   counts: { timetable: number; assignments: number; events: number };
 }
@@ -172,7 +181,19 @@ export function detectConflicts(blocks: FixedBlock[]): Conflict[] {
 
 export function toAssignmentView(a: Assignment, now: Clock): AssignmentView {
   const minutesLeft = minutesUntil(now, a.dueDate, a.dueTime);
-  return { ...a, minutesLeft, due: formatDue(now, a.dueDate, a.dueTime), overdue: minutesLeft < 0 };
+  const loggedMinutes = a.progress.reduce((s, p) => s + p.minutes, 0);
+  const loggedToday = a.progress.filter((p) => p.date === now.date).reduce((s, p) => s + p.minutes, 0);
+  const rest = a.estimatedMinutes - loggedMinutes;
+  return {
+    ...a,
+    loggedMinutes,
+    loggedToday,
+    remainingMinutes: rest > 0 ? rest : 10,
+    overEstimate: rest <= 0,
+    minutesLeft,
+    due: formatDue(now, a.dueDate, a.dueTime),
+    overdue: minutesLeft < 0,
+  };
 }
 
 export function buildCampusContext(
@@ -206,6 +227,7 @@ export function buildCampusContext(
     nextBlock,
     openAssignments,
     doneCount: data.assignments.length - openAssignments.length,
+    loggedTodayTotal: data.assignments.reduce((s, a) => s + a.progress.filter((p) => p.date === now.date).reduce((x, p) => x + p.minutes, 0), 0),
     conflicts,
     counts: { timetable: data.timetable.length, assignments: data.assignments.length, events: data.events.length },
   };

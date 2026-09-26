@@ -69,10 +69,11 @@ function effortPoints(est: number): number {
 export function scoreAssignment(a: AssignmentView): PriorityItem {
   const factors: PriorityFactor[] = [];
   factors.push(urgencyPoints(a.minutesLeft));
-  if (a.minutesLeft >= 0 && a.minutesLeft < a.estimatedMinutes) {
+  if (a.minutesLeft >= 0 && a.minutesLeft < a.remainingMinutes) {
     factors.push({ label: "남은 시간보다 작업량이 많음", points: 10 });
   }
   factors.push({ label: IMPORTANCE_TEXT[a.importance], points: IMPORTANCE_POINTS[a.importance] });
+  // 총 예상 기준 — 남은 시간 기준이면 진행할수록 점수가 떨어져 순서가 흔들린다 (TS-05)
   const eff = effortPoints(a.estimatedMinutes);
   const within72 = a.minutesLeft <= 72 * 60;
   factors.push({
@@ -91,7 +92,11 @@ export function scoreAssignment(a: AssignmentView): PriorityItem {
     score,
     factors,
     reason: buildReason(factors),
-    facts: [leftText, `예상 소요 ${formatDuration(a.estimatedMinutes)}`, a.subject].filter(Boolean),
+    facts: [
+      leftText,
+      a.loggedMinutes > 0 ? `남은 작업 ${formatDuration(a.remainingMinutes)} (${formatDuration(a.loggedMinutes)} 진행)` : `예상 소요 ${formatDuration(a.estimatedMinutes)}`,
+      a.subject,
+    ].filter(Boolean),
   };
 }
 

@@ -35,6 +35,7 @@ export const assignmentSchema = z.object({
   estimatedMinutes: z.number().int().min(0).max(60 * 24 * 7),
   importance: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
   status: z.enum(["todo", "in_progress", "done"]),
+  progress: z.array(z.object({ date: isoDate, minutes: z.number().int().min(0).max(24 * 60) })).max(500).default([]),
   memo: z.string().default(""),
 });
 
@@ -49,6 +50,8 @@ export const eventSchema = z.object({
   memo: z.string().default(""),
   travelMinutes: z.number().int().min(0).max(600).nullable().default(null),
 });
+
+export const focusSessionSchema = z.object({ refId: z.string().min(1), date: isoDate, startMinutes: z.number().int().min(0).max(24 * 60) });
 
 export const settingsSchema = z.object({
   userName: z.string().default(DEFAULT_SETTINGS.userName),
@@ -83,6 +86,7 @@ export function parseCampusData(raw: unknown): { data: CampusData; dropped: numb
       timetable: pick(timetableEntrySchema, obj.timetable) as CampusData["timetable"],
       assignments: pick(assignmentSchema, obj.assignments),
       events: pick(eventSchema, obj.events),
+      activeSession: focusSessionSchema.safeParse(obj.activeSession).success ? (obj.activeSession as CampusData["activeSession"]) : null,
     },
     dropped,
   };

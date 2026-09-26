@@ -1,6 +1,6 @@
 import { josa } from "../korean";
 import type { CampusContext, FixedBlock } from "../context/campusContext";
-import { diffDays, formatDuration, fromMinutes, overlaps, toMinutes } from "../time";
+import { addDays, diffDays, formatDuration, fromMinutes, overlaps, toMinutes } from "../time";
 import type { PriorityItem } from "./priority";
 
 /**
@@ -66,6 +66,19 @@ export function todayShare(estimatedMinutes: number, daysLeft: number): number {
   if (daysLeft <= 1) return estimatedMinutes;
   const share = Math.ceil(estimatedMinutes / daysLeft / 10) * 10;
   return Math.min(estimatedMinutes, Math.max(PLAN_RULES.minSession + 5, share));
+}
+
+/**
+ * 배치 순서 — 우선순위(무엇이 중요한가)와 분리한다.
+ * 36시간 안에 마감되는 과제는 마감이 빠른 순(EDF), 마감이 지난 과제, 나머지는 우선순위 점수 순.
+ * 점수 순으로만 배치하면 과제를 진행할수록 '예상 소요' 점수가 떨어져 마감 직전에 다른 과제에 밀린다
+ * (docs/troubleshooting.md TS-05, 시뮬레이션으로 발견).
+ */
+export const EDF_HORIZON_MINUTES = 36 * 60;
+function scheduleOrder(t: { a: { minutesLeft: number; overdue: boolean }; p: { score: number } }): number {
+  if (!t.a.overdue && t.a.minutesLeft <= EDF_HORIZON_MINUTES) return t.a.minutesLeft;
+  if (t.a.overdue) return 1_000_000 - t.p.score;
+  return 2_000_000 - t.p.score;
 }
 
 interface Interval {
@@ -157,23 +170,35 @@ export function buildActionPlan(ctx: CampusContext, priorities: PriorityItem[]):
     .map((p) => {
       const a = ctx.openAssignments.find((x) => x.id === p.refId)!;
       const dueToday = a.dueDate === now.date && !a.overdue;
-      const share = todayShare(a.estimatedMinutes, diffDays(now.date, a.dueDate));
-      return { p, a, remaining: share, isShare: share < a.estimatedMinutes, scheduled: 0, dueToday, hardEnd: dueToday ? toMinutes(a.dueTime) : Infinity };
+      // 내일 아침(계획 시작 + 2시간 이전) 마감도 사실상 오늘 끝내야 한다 → 상한 예외
+      const mustFinishToday = dueToday || (!a.overdue && a.dueDate === addDays(now.date, 1) && toMinutes(a.dueTime) <= dayStart + 120);
+      // 오늘 몫 = (남은 작업 + 오늘 이미 한 것) 을 남은 일수로 나눈 양 − 오늘 이미 한 것
+      // 오늘 한 양을 빼지 않으면 조금씩 할 때마다 '오늘 몫'이 다시 생긴다 (TS-06)
+      const share = todayShare(a.remainingMinutes + a.loggedToday, diffDays(now.date, a.dueDate)) - a.loggedToday;
+      const remaining = Math.min(a.remainingMinutes, Math.max(0, share));
+      return { p, a, remaining, isShare: remaining < a.remainingMinutes, scheduled: 0, dueToday, mustFinishToday, hardEnd: dueToday ? toMinutes(a.dueTime) : Infinity };
     })
-    .filter((t) => t.a && t.remaining > 0);
+    .filter((t) => t.a && t.remaining > 0)
+    .sort((x, y) => scheduleOrder(x) - scheduleOrder(y));
 
+  // 하루 상한은 "오늘 이미 기록한 작업"을 포함한다. 매 시점 계획을 다시 세우므로
+  // 기록을 빼지 않으면 하루 6시간을 넘게 된다 (TS-07, 1주일 시뮬레이션에서 하루 최대 538분 관측).
+  // 오늘(또는 내일 아침) 마감 과제는 상한 때문에 놓치지 않도록 예외로 두고 경고한다.
+  const doneToday = ctx.loggedTodayTotal;
+  let capLeft = Math.max(0, PLAN_RULES.maxWorkPerDay - doneToday);
+  let capHit = false;
   let workTotal = 0;
   for (const slot of free) {
     let cursor = slot.start;
-    while (cursor + PLAN_RULES.minSession <= slot.end && workTotal < PLAN_RULES.maxWorkPerDay) {
-      const task = tasks.find((t) => t.remaining > 0 && Math.min(slot.end, t.hardEnd) - cursor >= Math.min(PLAN_RULES.minSession, t.remaining));
-      if (!task) break;
-      const len = Math.min(
-        task.remaining,
-        PLAN_RULES.maxSession,
-        Math.min(slot.end, task.hardEnd) - cursor,
-        PLAN_RULES.maxWorkPerDay - workTotal,
-      );
+    while (cursor + PLAN_RULES.minSession <= slot.end) {
+      const fits = (t: (typeof tasks)[number]) => Math.min(slot.end, t.hardEnd) - cursor >= Math.min(PLAN_RULES.minSession, t.remaining);
+      const allowed = (t: (typeof tasks)[number]) => t.mustFinishToday || capLeft >= Math.min(PLAN_RULES.minSession, t.remaining);
+      const task = tasks.find((t) => t.remaining > 0 && fits(t) && allowed(t));
+      if (!task) {
+        if (tasks.some((t) => t.remaining > 0 && fits(t) && !allowed(t))) capHit = true;
+        break;
+      }
+      const len = Math.min(task.remaining, PLAN_RULES.maxSession, Math.min(slot.end, task.hardEnd) - cursor, task.mustFinishToday ? Infinity : capLeft);
       const rank = priorities.findIndex((p) => p.id === task.p.id) + 1;
       blocks.push({
         id: `plan:work:${task.a.id}:${cursor}`,
@@ -187,13 +212,14 @@ export function buildActionPlan(ctx: CampusContext, priorities: PriorityItem[]):
       task.remaining -= len;
       task.scheduled += len;
       workTotal += len;
+      capLeft = Math.max(0, capLeft - len);
       cursor += len + PLAN_RULES.breakBetween;
     }
   }
 
   const unscheduled: UnscheduledWork[] = tasks
-    .filter((t) => t.remaining > 0 && (t.dueToday || t.a.overdue || t.a.minutesLeft <= 24 * 60))
-    .map((t) => ({ refId: t.a.id, title: t.a.title, neededMinutes: t.a.estimatedMinutes, scheduledMinutes: t.scheduled, dueToday: t.dueToday }));
+    .filter((t) => t.remaining > 0 && !t.isShare && (t.dueToday || t.a.overdue || t.a.minutesLeft <= 24 * 60))
+    .map((t) => ({ refId: t.a.id, title: t.a.title, neededMinutes: t.a.remainingMinutes, scheduledMinutes: t.scheduled, dueToday: t.dueToday }));
 
   for (const u of unscheduled) {
     if (u.dueToday) {
@@ -202,7 +228,8 @@ export function buildActionPlan(ctx: CampusContext, priorities: PriorityItem[]):
   }
   for (const a of ctx.openAssignments.filter((x) => x.overdue)) warnings.push(`'${a.title}'의 마감이 지났습니다. 늦은 제출 가능 여부를 확인하세요.`);
   for (const c of ctx.conflicts.filter((x) => x.date === now.date)) warnings.push(c.message);
-  if (workTotal >= PLAN_RULES.maxWorkPerDay) warnings.push(`하루 과제 시간을 ${formatDuration(PLAN_RULES.maxWorkPerDay)}로 제한했습니다. 남은 작업은 다음 날로 넘기세요.`);
+  if (capHit) warnings.push(`오늘 과제 시간이 ${formatDuration(PLAN_RULES.maxWorkPerDay)}에 도달해 마감이 급하지 않은 작업은 다음 날로 넘겼습니다.`);
+  if (doneToday + workTotal > PLAN_RULES.maxWorkPerDay) warnings.push(`오늘 마감 과제 때문에 과제 시간이 ${formatDuration(doneToday + workTotal)}로 권장 상한(${formatDuration(PLAN_RULES.maxWorkPerDay)})을 넘습니다.`);
 
   blocks.sort((a, b) => a.start - b.start || a.end - b.end);
   const freeMinutes = free.reduce((s, f) => s + (f.end - f.start), 0) - workTotal;

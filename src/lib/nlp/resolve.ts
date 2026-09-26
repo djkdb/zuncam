@@ -100,7 +100,7 @@ export function toDraft(out: ParseOutput, today: ISODate): ParsedDraft {
     if (dueDate < today) notes.push("마감일이 이미 지났습니다. 날짜를 확인하세요.");
     return {
       kind: "assignment",
-      assignment: { title, subject: out.subject.trim(), dueDate, dueTime, estimatedMinutes: est, importance: imp, status: "todo", memo: "" },
+      assignment: { title, subject: out.subject.trim(), dueDate, dueTime, estimatedMinutes: est, importance: imp, status: "todo", memo: "", progress: [] },
       notes,
     };
   }

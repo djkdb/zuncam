@@ -58,6 +58,7 @@ export const aiContextSchema = z.object({
         due: z.string(),
         dueLabel: z.string(),
         estimatedMinutes: z.number(),
+        remainingMinutes: z.number(),
         status: z.string(),
         importance: z.number(),
       }),
@@ -116,6 +117,7 @@ export function toAIContext(ctx: CampusContext, priorities: PriorityItem[], plan
         due: `${a.dueDate} ${a.dueTime}`,
         dueLabel: a.due.text,
         estimatedMinutes: a.estimatedMinutes,
+        remainingMinutes: a.remainingMinutes,
         status: a.status,
         importance: a.importance,
       };

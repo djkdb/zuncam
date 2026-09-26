@@ -43,11 +43,25 @@ export interface Assignment extends BaseEntity {
   subject: string;
   dueDate: ISODate;
   dueTime: HHmm;
-  /** 남은 작업 기준 예상 소요시간(분) */
+  /** 총 예상 소요시간(분). 남은 시간 = estimatedMinutes - 진행 기록 합계 */
   estimatedMinutes: number;
+  /** 날짜별 진행 기록 — 계획의 '오늘 몫'과 남은 시간 계산에 쓰인다 */
+  progress: ProgressEntry[];
   importance: Importance;
   status: AssignmentStatus;
   memo: string;
+}
+
+export interface ProgressEntry {
+  date: ISODate;
+  minutes: number;
+}
+
+/** "지금 시작"을 누른 집중 세션. 멈추면 경과 시간이 progress 에 기록된다 */
+export interface FocusSession {
+  refId: string;
+  date: ISODate;
+  startMinutes: number;
 }
 
 export type EventCategory = "school" | "appointment" | "club" | "exercise" | "personal" | "etc";
@@ -82,6 +96,7 @@ export interface CampusData {
   timetable: TimetableEntry[];
   assignments: Assignment[];
   events: CampusEvent[];
+  activeSession: FocusSession | null;
 }
 
 export const EVENT_CATEGORY_LABEL: Record<EventCategory, string> = {
@@ -117,5 +132,5 @@ export const DEFAULT_SETTINGS: UserSettings = {
 };
 
 export function emptyCampusData(): CampusData {
-  return { version: 1, settings: { ...DEFAULT_SETTINGS }, timetable: [], assignments: [], events: [] };
+  return { version: 1, settings: { ...DEFAULT_SETTINGS }, timetable: [], assignments: [], events: [], activeSession: null };
 }

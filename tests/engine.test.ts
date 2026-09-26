@@ -100,11 +100,21 @@ describe("Action Plan", () => {
     const os = plan.blocks.filter((b) => b.type === "work" && b.refId === "demo-a3");
     expect(os.reduce((s, b) => s + b.end - b.start, 0)).toBe(40);
   });
-  it("하루 과제 시간 상한을 넘기지 않는다", () => {
+  it("하루 과제 시간 상한: 급하지 않은 과제는 오늘 기록 포함 6시간을 넘기지 않는다", () => {
+    const big = (id: string, dueDate: string, dueTime: string) => ({ id, createdAt: "", updatedAt: "", title: id, subject: "", dueDate, dueTime, estimatedMinutes: 900, importance: 4 as const, status: "todo" as const, memo: "", progress: [] as { date: string; minutes: number }[] });
     const { plan } = run("08:00", (d) => {
-      d.assignments.push({ id: "big", createdAt: "", updatedAt: "", title: "졸업작품", subject: "", dueDate: "2026-09-26", dueTime: "09:00", estimatedMinutes: 900, importance: 4, status: "todo", memo: "" });
+      d.assignments = [big("졸업작품", "2026-09-26", "18:00")];
+      d.assignments[0].progress.push({ date: TODAY, minutes: 120 }); // 오늘 이미 2시간
     });
-    expect(plan.workMinutes).toBeLessThanOrEqual(360);
+    expect(plan.workMinutes).toBe(240);
+    expect(plan.warnings.some((w) => w.includes("다음 날로"))).toBe(true);
+  });
+  it("내일 아침 마감은 상한 예외 — 대신 과부하 경고", () => {
+    const { plan } = run("08:00", (d) => {
+      d.assignments = [{ id: "a", createdAt: "", updatedAt: "", title: "밤샘 과제", subject: "", dueDate: "2026-09-26", dueTime: "09:00", estimatedMinutes: 480, importance: 4, status: "todo", memo: "", progress: [] }];
+    });
+    expect(plan.workMinutes).toBeGreaterThan(360); // 빈 시간이 허락하는 만큼 (상한에 막히지 않음)
+    expect(plan.warnings.some((w) => w.includes("권장 상한"))).toBe(true);
   });
 });
 

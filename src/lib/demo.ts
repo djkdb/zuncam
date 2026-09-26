@@ -21,11 +21,12 @@ export function createDemoData(today: string, userName = "성준"): CampusData {
       { ...meta("demo-c3"), subject: "자료구조", professor: "박준호", weekday: other, startTime: "13:00", endTime: "15:00", room: "204호", location: "공학관", memo: "" },
     ],
     assignments: [
-      { ...meta("demo-a1"), title: "자료구조 과제 3 (힙 구현)", subject: "자료구조", dueDate: today, dueTime: "23:59", estimatedMinutes: 90, importance: 4, status: "in_progress", memo: "우선순위 큐 테스트 포함" },
-      { ...meta("demo-a2"), title: "네트워크 소켓 실습 보고서", subject: "컴퓨터 네트워크", dueDate: addDays(today, 1), dueTime: "23:59", estimatedMinutes: 60, importance: 3, status: "todo", memo: "" },
-      { ...meta("demo-a3"), title: "운영체제 스케줄링 과제", subject: "운영체제", dueDate: addDays(today, 5), dueTime: "18:00", estimatedMinutes: 180, importance: 3, status: "todo", memo: "" },
-      { ...meta("demo-a4"), title: "교양 독후감", subject: "글쓰기", dueDate: addDays(today, 2), dueTime: "12:00", estimatedMinutes: 60, importance: 2, status: "done", memo: "" },
+      { ...meta("demo-a1"), title: "자료구조 과제 3 (힙 구현)", subject: "자료구조", dueDate: today, dueTime: "23:59", estimatedMinutes: 120, importance: 4, status: "in_progress", memo: "우선순위 큐 테스트 포함", progress: [{ date: addDays(today, -1), minutes: 30 }] },
+      { ...meta("demo-a2"), title: "네트워크 소켓 실습 보고서", subject: "컴퓨터 네트워크", dueDate: addDays(today, 1), dueTime: "23:59", estimatedMinutes: 60, importance: 3, status: "todo", memo: "", progress: [] },
+      { ...meta("demo-a3"), title: "운영체제 스케줄링 과제", subject: "운영체제", dueDate: addDays(today, 5), dueTime: "18:00", estimatedMinutes: 180, importance: 3, status: "todo", memo: "", progress: [] },
+      { ...meta("demo-a4"), title: "교양 독후감", subject: "글쓰기", dueDate: addDays(today, 2), dueTime: "12:00", estimatedMinutes: 60, importance: 2, status: "done", memo: "", progress: [] },
     ],
+    activeSession: null,
     events: [
       { ...meta("demo-e1"), title: "CLASS FC 풋살", date: today, startTime: "18:00", endTime: "20:00", location: "한강 풋살장", category: "exercise", memo: "", travelMinutes: 35 },
       { ...meta("demo-e2"), title: "동아리 정기회의", date: addDays(today, 2), startTime: "19:00", endTime: "20:30", location: "학생회관 204호", category: "club", memo: "", travelMinutes: null },

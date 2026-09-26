@@ -141,7 +141,7 @@ export function AssignmentForm({
     e.preventDefault();
     setTouched(true);
     if (Object.values(errs).some(Boolean)) return;
-    onSubmit({ ...f, title: f.title.trim(), id: initial?.id });
+    onSubmit({ ...f, title: f.title.trim(), id: initial?.id, progress: initial?.progress ?? [] });
   };
   return (
     <form onSubmit={submit} className="space-y-3">
