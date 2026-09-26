@@ -29,11 +29,51 @@ export interface FixedBlock {
   departAt: number | null;
 }
 
+/**
+ * 예상 소요시간 보정 — 완료한 과제에서 "실제로 기록된 시간 / 예상"의 비율을 학습한다.
+ * 사람은 대체로 과소평가한다(planning fallacy). 시뮬레이션에서 예상이 틀리는 학생의 마감 준수율이
+ * EDF보다 크게 떨어진 것이 도입 계기 (docs/troubleshooting.md TS-12).
+ */
+export interface EstimateCalibration {
+  /** 적용 배율 (1 이면 보정 없음) */
+  factor: number;
+  /** 학습한 비율 (적용 여부와 무관) */
+  observed: number | null;
+  samples: number;
+  applied: boolean;
+}
+
+/** 예상 초과 시 더 남았다고 보는 양 */
+const OVERRUN_RATIO = 0.3;
+const OVERRUN_MIN = 30;
+
+export const CALIBRATION_RULES = { minSamples: 2, maxSamples: 10, min: 0.8, max: 2.0, deadZone: 0.1 } as const;
+
+export function computeCalibration(data: CampusData): EstimateCalibration {
+  const done = data.assignments
+    .filter((a) => a.status === "done" && a.estimatedMinutes > 0 && a.progress.length > 0)
+    .sort((a, b) => (b.dueDate + b.dueTime).localeCompare(a.dueDate + a.dueTime))
+    .slice(0, CALIBRATION_RULES.maxSamples);
+  if (done.length < CALIBRATION_RULES.minSamples) return { factor: 1, observed: null, samples: done.length, applied: false };
+  const actual = done.reduce((s, a) => s + a.progress.reduce((x, p) => x + p.minutes, 0), 0);
+  const est = done.reduce((s, a) => s + a.estimatedMinutes, 0);
+  const observed = Math.round((actual / est) * 20) / 20; // 0.05 단위
+  const clamped = Math.min(CALIBRATION_RULES.max, Math.max(CALIBRATION_RULES.min, observed));
+  const applied = data.settings.calibrateEstimates && Math.abs(clamped - 1) >= CALIBRATION_RULES.deadZone;
+  return { factor: applied ? clamped : 1, observed, samples: done.length, applied };
+}
+
 export interface AssignmentView extends Assignment {
+  /** 보정된 총 예상 (보정 없으면 estimatedMinutes 와 같음) */
+  adjustedEstimate: number;
   /** 진행 기록 합계 / 오늘 기록 */
   loggedMinutes: number;
   loggedToday: number;
-  /** 남은 작업(분). 기록이 예상을 넘었는데 완료가 아니면 마무리용 10분으로 본다 */
+  /**
+   * 남은 작업(분). 기록이 예상을 넘었는데 완료가 아니면 보정 예상의 30%(최소 30분)가 더 남았다고 본다.
+   * 처음엔 "마무리 10분"으로 봤는데, 예상이 크게 틀린 과제에서 앱이 거의 끝났다고 믿고 하루 상한에 막혀
+   * 다음 날 아침 마감을 놓쳤다 (TS-14, 시뮬레이션).
+   */
   remainingMinutes: number;
   /** 진행 기록이 예상 소요시간을 넘음 → 예상 수정 필요 */
   overEstimate: boolean;
@@ -71,6 +111,7 @@ export interface CampusContext {
   doneCount: number;
   /** 오늘 기록된 작업 합계 — 완료된 과제 포함 */
   loggedTodayTotal: number;
+  calibration: EstimateCalibration;
   /** 진행 중인 집중 세션 */
   activeSession: { refId: string; title: string; startMinutes: number; elapsed: number } | null;
   conflicts: Conflict[];
@@ -188,16 +229,18 @@ export function sessionElapsed(s: FocusSession, now: Clock): number {
 }
 
 /** unsavedMinutes: 진행 중인 집중 세션의 경과 시간 — 아직 기록 전이지만 계산에는 반영한다 */
-export function toAssignmentView(a: Assignment, now: Clock, unsavedMinutes = 0): AssignmentView {
+export function toAssignmentView(a: Assignment, now: Clock, unsavedMinutes = 0, factor = 1): AssignmentView {
   const minutesLeft = minutesUntil(now, a.dueDate, a.dueTime);
   const loggedMinutes = a.progress.reduce((s, p) => s + p.minutes, 0) + unsavedMinutes;
   const loggedToday = a.progress.filter((p) => p.date === now.date).reduce((s, p) => s + p.minutes, 0) + unsavedMinutes;
-  const rest = a.estimatedMinutes - loggedMinutes;
+  const adjustedEstimate = Math.round((a.estimatedMinutes * factor) / 5) * 5;
+  const rest = adjustedEstimate - loggedMinutes;
   return {
     ...a,
+    adjustedEstimate,
     loggedMinutes,
     loggedToday,
-    remainingMinutes: rest > 0 ? rest : 10,
+    remainingMinutes: rest > 0 ? rest : Math.max(OVERRUN_MIN, Math.round((adjustedEstimate * OVERRUN_RATIO) / 5) * 5),
     overEstimate: rest <= 0,
     minutesLeft,
     due: formatDue(now, a.dueDate, a.dueTime),
@@ -217,11 +260,12 @@ export function buildCampusContext(
   const currentBlock = todayBlocks.find((b) => b.start <= now.minutes && now.minutes < b.end) ?? null;
   const nextBlock = todayBlocks.find((b) => b.start > now.minutes) ?? null;
 
+  const calibration = computeCalibration(data);
   const session = data.activeSession && data.assignments.some((a) => a.id === data.activeSession!.refId && a.status !== "done") ? data.activeSession : null;
   const elapsed = session ? sessionElapsed(session, now) : 0;
   const openAssignments = data.assignments
     .filter((a) => a.status !== "done")
-    .map((a) => toAssignmentView(a, now, a.id === session?.refId ? elapsed : 0))
+    .map((a) => toAssignmentView(a, now, a.id === session?.refId ? elapsed : 0, calibration.factor))
     .sort((a, b) => a.minutesLeft - b.minutesLeft);
 
   // 이미 지나간 날짜/시간의 충돌은 의미가 없으므로 오늘 이후 끝나지 않은 것만
@@ -238,6 +282,7 @@ export function buildCampusContext(
     nextBlock,
     openAssignments,
     doneCount: data.assignments.length - openAssignments.length,
+    calibration,
     loggedTodayTotal: data.assignments.reduce((s, a) => s + a.progress.filter((p) => p.date === now.date).reduce((x, p) => x + p.minutes, 0), 0) + elapsed,
     activeSession: session
       ? { refId: session.refId, title: data.assignments.find((a) => a.id === session.refId)!.title, startMinutes: session.date === now.date ? session.startMinutes : 0, elapsed }

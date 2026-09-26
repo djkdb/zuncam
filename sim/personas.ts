@@ -38,7 +38,14 @@ const EVENT_TITLES: [string, EventCategory][] = [
   ["스터디", "school"],
 ];
 
+/**
+ * id 는 시나리오마다 0부터 다시 센다. 전역 카운터를 쓰면 같은 시드라도 앞에서 몇 개를 생성했는지에 따라
+ * id 가 달라지고, id 로 정하는 "실제 소요 배율"까지 달라져 정책 간 비교가 불공정해진다 (TS-17).
+ */
 let idSeq = 0;
+const resetIds = () => {
+  idSeq = 0;
+};
 const meta = () => {
   const id = `sim-${++idSeq}`;
   return { id, createdAt: "", updatedAt: "" };
@@ -97,7 +104,7 @@ export interface Persona {
   build: (today: string, r: Rng) => CampusData;
 }
 
-const base = (): CampusData => ({ version: 1, settings: { ...DEFAULT_SETTINGS, userName: "sim" }, timetable: [], assignments: [], events: [], activeSession: null });
+const base = (): CampusData => (resetIds(), { version: 1, settings: { ...DEFAULT_SETTINGS, userName: "sim" }, timetable: [], assignments: [], events: [], activeSession: null });
 
 export const PERSONAS: Persona[] = [
   {
@@ -240,6 +247,8 @@ export function randomWeek(monday: string, r: Rng, load: "light" | "normal" | "h
       cursor += len + r.pick([15, 30, 60, 90]);
     }
   }
+  // 지난주에 끝낸 과제 3개 (이력). 실제 걸린 시간은 행동 모델이 playWeek 에서 채운다
+  for (let i = 0; i < 3; i++) d.assignments.push(assignment(r, monday, -r.int(2, 7), { status: "done", estimatedMinutes: r.pick([60, 90, 120, 180]) }));
   const n = { light: 4, normal: 7, heavy: 11 }[load];
   for (let i = 0; i < n; i++) {
     d.assignments.push(assignment(r, monday, r.int(0, 8), { estimatedMinutes: r.pick([60, 90, 120, 180, 240]), status: "todo" }));

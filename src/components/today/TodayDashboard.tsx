@@ -67,7 +67,7 @@ export function TodayDashboard() {
           <NowCard advice={advice} context={aiContext} ctx={ctx} />
           <PriorityList items={priorities.items} briefing={briefing.briefing} />
           <Recommendation ctx={ctx} plan={plan} briefing={briefing} />
-          <PlanTimeline plan={plan} now={ctx.now.minutes} notes={briefing.briefing?.planNotes ?? {}} />
+          <PlanTimeline plan={plan} now={ctx.now.minutes} notes={briefing.briefing?.planNotes ?? {}} calibration={ctx.calibration} />
         </div>
         <div className="space-y-5">
           <NextCard ctx={ctx} />
@@ -238,7 +238,7 @@ const PLAN_STYLE: Record<PlanBlock["type"], { bar: string; label: string }> = {
   meal: { bar: "bg-ink-300", label: "식사" },
 };
 
-function PlanTimeline({ plan, now, notes }: { plan: ActionPlan; now: number; notes: Record<string, string> }) {
+function PlanTimeline({ plan, now, notes, calibration }: { plan: ActionPlan; now: number; notes: Record<string, string>; calibration: CampusContext["calibration"] }) {
   return (
     <Card className="p-5">
       <SectionTitle
@@ -275,6 +275,9 @@ function PlanTimeline({ plan, now, notes }: { plan: ActionPlan; now: number; not
             );
           })}
         </ol>
+      )}
+      {calibration.applied && (
+        <p className="mt-3 text-xs text-ink-500">예상 소요시간을 ×{calibration.factor.toFixed(2)} 보정해 계획했어요 (완료 과제 {calibration.samples}개 기준).</p>
       )}
       {plan.unscheduled.length > 0 && (
         <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">
@@ -368,10 +371,10 @@ function Deadlines({ items }: { items: AssignmentView[] }) {
                 <p className="truncate text-sm font-medium">{a.title}</p>
                 <p className="text-xs text-ink-500">
                   {a.subject && `${a.subject} · `}
-                  {a.loggedMinutes > 0 ? `남은 ${formatDuration(a.remainingMinutes)}` : formatDuration(a.estimatedMinutes)}
+                  {a.loggedMinutes > 0 ? `남은 ${formatDuration(a.remainingMinutes)}` : formatDuration(a.adjustedEstimate)}
                   {a.status === "in_progress" && " · 진행 중"}
                 </p>
-                {a.loggedMinutes > 0 && <ProgressBar done={a.loggedMinutes} total={a.estimatedMinutes} />}
+                {a.loggedMinutes > 0 && <ProgressBar done={a.loggedMinutes} total={a.adjustedEstimate} />}
               </div>
               <Badge tone={DUE_TONE[a.due.tone]} className="tabular">
                 {a.due.text}

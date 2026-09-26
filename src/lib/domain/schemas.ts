@@ -59,6 +59,7 @@ export const settingsSchema = z.object({
   dayEnd: hhmm.default(DEFAULT_SETTINGS.dayEnd),
   reserveMeals: z.boolean().default(DEFAULT_SETTINGS.reserveMeals),
   departureBufferMinutes: z.number().int().min(0).max(60).default(DEFAULT_SETTINGS.departureBufferMinutes),
+  calibrateEstimates: z.boolean().default(DEFAULT_SETTINGS.calibrateEstimates),
 });
 
 /**

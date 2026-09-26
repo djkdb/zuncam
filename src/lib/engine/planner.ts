@@ -1,4 +1,4 @@
-import { josa } from "../korean";
+import { josa, q } from "../korean";
 import type { CampusContext, FixedBlock } from "../context/campusContext";
 import { addDays, diffDays, formatDuration, fromMinutes, overlaps, toMinutes } from "../time";
 import type { PriorityItem } from "./priority";
@@ -29,7 +29,12 @@ export interface UnscheduledWork {
   dueToday: boolean;
 }
 
+/** 내일 빈 시간 중 실제로 그 과제에 쓸 수 있다고 보는 비율 (다른 과제·식사·지연 여유) */
+export const TOMORROW_USABLE = 0.6;
+
 export interface ActionPlan {
+  /** 오늘 마감을 위해 식사·휴식을 줄인 계획인지 */
+  crunch?: boolean;
   windowStart: number;
   windowEnd: number;
   blocks: PlanBlock[];
@@ -112,8 +117,45 @@ function fixedToPlan(b: FixedBlock): PlanBlock {
   };
 }
 
+/**
+ * 특정 날짜의 [from, until) 구간에서 고정 일정·이동을 뺀 빈 시간(분).
+ * "내일 아침 마감인데 내일 아침에 시간이 있나?"를 어림값 대신 실제 시간표로 판단하기 위함 (TS-13).
+ */
+export function freeMinutesOn(ctx: CampusContext, date: string, from: number, until: number): number {
+  if (until <= from) return 0;
+  const busy = ctx.weekBlocks
+    .filter((b) => b.date === date)
+    .flatMap((b) => [{ start: b.start, end: b.end }, ...(b.departAt !== null ? [{ start: b.departAt, end: b.start }] : [])]);
+  return subtract({ start: from, end: until }, busy).reduce((s, f) => s + (f.end - f.start), 0);
+}
+
+interface PlanOptions {
+  /** 크런치: 이 시각 전까지는 식사·세션 사이 휴식을 두지 않는다 (오늘 마감을 지키기 위해) */
+  crunchUntil?: number;
+}
+
+/**
+ * 오늘의 행동 계획. 오늘 마감 과제가 식사·휴식 때문에 마감 전에 다 들어가지 않으면,
+ * 그 마감 전까지 식사·휴식을 빼고 다시 계획해 본다(크런치). 더 많이 들어가면 크런치 계획을 쓰고 경고한다.
+ * EDF 기준선은 쉬지 않고 해서 지키던 마감을, 쉬는 계획이 놓치던 문제 (TS-13).
+ */
 export function buildActionPlan(ctx: CampusContext, priorities: PriorityItem[]): ActionPlan {
+  const normal = planOnce(ctx, priorities, {});
+  const short = normal.unscheduled.filter((u) => u.dueToday);
+  if (short.length === 0) return normal;
+  const until = Math.max(...short.map((u) => toMinutes(ctx.openAssignments.find((a) => a.id === u.refId)!.dueTime)));
+  const crunch = planOnce(ctx, priorities, { crunchUntil: until });
+  const dueWork = (p: ActionPlan) =>
+    p.blocks.filter((b) => b.type === "work" && short.some((u) => u.refId === b.refId)).reduce((s, b) => s + (b.end - b.start), 0);
+  if (dueWork(crunch) <= dueWork(normal)) return normal;
+  crunch.warnings.unshift(`${short.map((u) => q(u.title, "을/를")).join(", ")} 마감(${fromMinutes(until)}) 전에 끝내려면 그 전까지 식사·휴식을 줄여야 합니다. 계획을 그렇게 바꿨어요.`);
+  crunch.crunch = true;
+  return crunch;
+}
+
+function planOnce(ctx: CampusContext, priorities: PriorityItem[], opts: PlanOptions): ActionPlan {
   const { settings, now } = ctx;
+  const crunchUntil = opts.crunchUntil ?? -1;
   const dayStart = toMinutes(settings.dayStart);
   const windowEnd = toMinutes(settings.dayEnd);
   const roundedNow = Math.ceil(now.minutes / PLAN_RULES.roundTo) * PLAN_RULES.roundTo;
@@ -149,16 +191,17 @@ export function buildActionPlan(ctx: CampusContext, priorities: PriorityItem[]):
   // 2) 식사 — 이상적인 시간이 비어 있으면 그대로, 아니면 30분 단위로 밀어서 찾는다
   if (settings.reserveMeals) {
     for (const meal of MEALS) {
+      if (meal.ideal[0] < crunchUntil) continue; // 크런치 구간의 식사는 생략
       const len = meal.ideal[1] - meal.ideal[0];
       const candidates = [meal.ideal[0]];
       for (let s = meal.earliest; s + len <= meal.latest; s += 30) if (s !== meal.ideal[0]) candidates.push(s);
       candidates.sort((a, b) => Math.abs(a - meal.ideal[0]) - Math.abs(b - meal.ideal[0]));
-      // 이미 시작된 식사(s < 지금 < s+len)도 후보로 둔다. 지금 이후만 허용하면 12시가 지나는 순간
-      // 점심이 뒤로 밀리면서 뒤의 과제 블록까지 밀려 계획이 흔들린다 (TS-09)
-      const start = candidates.find(
-        (s) => s + len > windowStart && s >= dayStart && s + len <= windowEnd && !busy.some((b) => overlaps(s, s + len, b.start, b.end)),
-      );
-      if (start !== undefined) {
+      // 식사 시각은 "현재 시각"과 무관하게 그날의 고정 일정만으로 정한다.
+      // - 지금 이후만 허용하면 12시가 지나는 순간 점심이 밀려 뒤 계획이 흔들렸고 (TS-09)
+      // - "이미 시작된 식사"를 허용하면 10분마다 새 후보가 '진행 중'이 되어 점심이 2시간 넘게 늘어났다 (TS-15)
+      // 고정 일정은 하루 동안 바뀌지 않으므로 이 방식은 매 시점 같은 결과를 낸다. 이미 끝난 식사는 생략.
+      const start = candidates.find((s) => s >= dayStart && s + len <= windowEnd && !busy.some((b) => overlaps(s, s + len, b.start, b.end)));
+      if (start !== undefined && start + len > windowStart) {
         busy.push({ start, end: start + len });
         blocks.push({ id: `plan:meal:${meal.title}`, type: "meal", start, end: start + len, title: meal.title, refId: null, reason: "식사 시간 확보" });
       }
@@ -172,13 +215,18 @@ export function buildActionPlan(ctx: CampusContext, priorities: PriorityItem[]):
     .map((p) => {
       const a = ctx.openAssignments.find((x) => x.id === p.refId)!;
       const dueToday = a.dueDate === now.date && !a.overdue;
-      // 내일 아침(계획 시작 + 2시간 이전) 마감도 사실상 오늘 끝내야 한다 → 상한 예외
-      const mustFinishToday = dueToday || (!a.overdue && a.dueDate === addDays(now.date, 1) && toMinutes(a.dueTime) <= dayStart + 120);
+      // 상한 예외량: 오늘 마감은 전부, 내일 마감은 "내일 마감 전 빈 시간에 들어가지 않는 만큼" (TS-13)
+      const tomorrow = addDays(now.date, 1);
+      const exempt = dueToday
+        ? Infinity
+        : !a.overdue && a.dueDate === tomorrow
+          ? Math.max(0, a.remainingMinutes - Math.floor(freeMinutesOn(ctx, tomorrow, dayStart, toMinutes(a.dueTime)) * TOMORROW_USABLE))
+          : 0;
       // 오늘 몫 = (남은 작업 + 오늘 이미 한 것) 을 남은 일수로 나눈 양 − 오늘 이미 한 것
       // 오늘 한 양을 빼지 않으면 조금씩 할 때마다 '오늘 몫'이 다시 생긴다 (TS-06)
       const share = todayShare(a.remainingMinutes + a.loggedToday, diffDays(now.date, a.dueDate)) - a.loggedToday;
       const remaining = Math.min(a.remainingMinutes, Math.max(0, share));
-      return { p, a, remaining, isShare: remaining < a.remainingMinutes, scheduled: 0, dueToday, mustFinishToday, hardEnd: dueToday ? toMinutes(a.dueTime) : Infinity };
+      return { p, a, remaining, isShare: remaining < a.remainingMinutes, scheduled: 0, dueToday, exempt, hardEnd: dueToday ? toMinutes(a.dueTime) : Infinity };
     })
     .filter((t) => t.a && t.remaining > 0)
     .sort((x, y) => scheduleOrder(x) - scheduleOrder(y));
@@ -194,13 +242,13 @@ export function buildActionPlan(ctx: CampusContext, priorities: PriorityItem[]):
     let cursor = slot.start;
     while (cursor + PLAN_RULES.minSession <= slot.end) {
       const fits = (t: (typeof tasks)[number]) => Math.min(slot.end, t.hardEnd) - cursor >= Math.min(PLAN_RULES.minSession, t.remaining);
-      const allowed = (t: (typeof tasks)[number]) => t.mustFinishToday || capLeft >= Math.min(PLAN_RULES.minSession, t.remaining);
+      const allowed = (t: (typeof tasks)[number]) => t.exempt > 0 || capLeft >= Math.min(PLAN_RULES.minSession, t.remaining);
       const task = tasks.find((t) => t.remaining > 0 && fits(t) && allowed(t));
       if (!task) {
         if (tasks.some((t) => t.remaining > 0 && fits(t) && !allowed(t))) capHit = true;
         break;
       }
-      const len = Math.min(task.remaining, PLAN_RULES.maxSession, Math.min(slot.end, task.hardEnd) - cursor, task.mustFinishToday ? Infinity : capLeft);
+      const len = Math.min(task.remaining, cursor < crunchUntil ? Infinity : PLAN_RULES.maxSession, Math.min(slot.end, task.hardEnd) - cursor, task.exempt + capLeft);
       const rank = priorities.findIndex((p) => p.id === task.p.id) + 1;
       blocks.push({
         id: `plan:work:${task.a.id}:${cursor}`,
@@ -214,8 +262,11 @@ export function buildActionPlan(ctx: CampusContext, priorities: PriorityItem[]):
       task.remaining -= len;
       task.scheduled += len;
       workTotal += len;
-      capLeft = Math.max(0, capLeft - len);
-      cursor += len + PLAN_RULES.breakBetween;
+      // 예외량부터 쓰고, 나머지를 상한에서 뺀다
+      const fromExempt = Math.min(task.exempt, len);
+      task.exempt -= fromExempt;
+      capLeft = Math.max(0, capLeft - (len - fromExempt));
+      cursor += len + (cursor + len < crunchUntil ? 0 : PLAN_RULES.breakBetween);
     }
   }
 

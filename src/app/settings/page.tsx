@@ -1,9 +1,10 @@
 "use client";
 
-import { Clock3, Cpu, Database, Download, Sparkles, Upload, UserRound } from "lucide-react";
+import { Clock3, Cpu, Database, Download, Gauge, Sparkles, Upload, UserRound } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Badge, Button, Card, Field, inputCls, SectionTitle } from "@/components/ui";
 import { aiApi } from "@/lib/ai/clientApi";
+import { CALIBRATION_RULES, computeCalibration } from "@/lib/context/campusContext";
 import { actions, clockActions, useCampusStore, useClock } from "@/lib/store";
 import { fromMinutes, toMinutes } from "@/lib/time";
 
@@ -66,6 +67,12 @@ export default function SettingsPage() {
           <Field label="출발 전 여유(분)">
             <input type="number" min={0} max={60} className={inputCls} value={s.departureBufferMinutes} onChange={(e) => actions.updateSettings({ departureBufferMinutes: Math.min(60, Math.max(0, Number(e.target.value) || 0)) })} />
           </Field>
+          <Field label="예상 소요시간 자동 보정">
+            <label className="flex h-10 items-center gap-2 text-sm">
+              <input type="checkbox" checked={s.calibrateEstimates} onChange={(e) => actions.updateSettings({ calibrateEstimates: e.target.checked })} className="size-4" />
+              완료한 과제의 실제 시간으로 보정
+            </label>
+          </Field>
           <Field label="식사 시간 확보">
             <label className="flex h-10 items-center gap-2 text-sm">
               <input type="checkbox" checked={s.reserveMeals} onChange={(e) => actions.updateSettings({ reserveMeals: e.target.checked })} className="size-4" />
@@ -74,6 +81,8 @@ export default function SettingsPage() {
           </Field>
         </div>
       </Card>
+
+      <CalibrationCard />
 
       <Card className="space-y-3 p-5">
         <SectionTitle icon={<Sparkles className="size-3.5" />}>AI 연결 상태</SectionTitle>
@@ -153,5 +162,33 @@ export default function SettingsPage() {
         {message && <p className="text-xs text-emerald-700">{message}</p>}
       </Card>
     </div>
+  );
+}
+
+function CalibrationCard() {
+  const { data } = useCampusStore();
+  const c = computeCalibration(data);
+  return (
+    <Card className="space-y-2 p-5">
+      <SectionTitle icon={<Gauge className="size-3.5" />}>예상 소요시간 학습</SectionTitle>
+      {c.observed === null ? (
+        <p className="text-sm text-ink-500">
+          진행 기록이 있는 완료 과제가 {CALIBRATION_RULES.minSamples}개 이상 쌓이면, 실제로 걸린 시간과 예상의 비율을 학습해 남은 과제의 계획에 반영합니다. (현재 {c.samples}개)
+        </p>
+      ) : (
+        <>
+          <p className="text-sm">
+            최근 완료한 과제 {c.samples}개는 예상의 <b className="tabular">{c.observed.toFixed(2)}배</b>가 걸렸어요.
+          </p>
+          <p className="text-sm text-ink-500">
+            {c.applied
+              ? `남은 과제의 예상 소요시간에 ×${c.factor.toFixed(2)}를 적용해 계획합니다.`
+              : !data.settings.calibrateEstimates
+                ? "자동 보정이 꺼져 있어 입력한 예상 그대로 계획합니다."
+                : `차이가 ${Math.round(CALIBRATION_RULES.deadZone * 100)}% 미만이라 보정하지 않습니다.`}
+          </p>
+        </>
+      )}
+    </Card>
   );
 }

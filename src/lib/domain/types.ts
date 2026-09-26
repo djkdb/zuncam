@@ -88,6 +88,8 @@ export interface UserSettings {
   reserveMeals: boolean;
   /** 이동 출발 전 여유 시간(분) */
   departureBufferMinutes: number;
+  /** 완료한 과제의 "예상 대비 실제"로 남은 과제의 예상 소요시간을 보정할지 */
+  calibrateEstimates: boolean;
 }
 
 export interface CampusData {
@@ -129,6 +131,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   dayEnd: "24:00",
   reserveMeals: true,
   departureBufferMinutes: 5,
+  calibrateEstimates: true,
 };
 
 export function emptyCampusData(): CampusData {

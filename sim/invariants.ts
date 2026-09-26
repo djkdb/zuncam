@@ -4,7 +4,7 @@ import { buildCampusContext } from "../src/lib/context/campusContext";
 import type { CampusData } from "../src/lib/domain/types";
 import { ruleRecommendation, ruleSummary } from "../src/lib/engine/narrative";
 import { adviseNow } from "../src/lib/engine/nowAdvisor";
-import { buildActionPlan, PLAN_RULES } from "../src/lib/engine/planner";
+import { buildActionPlan, freeMinutesOn, PLAN_RULES, TOMORROW_USABLE } from "../src/lib/engine/planner";
 import { computePriorities } from "../src/lib/engine/priority";
 import { addDays, fromMinutes, overlaps, toMinutes, type Clock } from "../src/lib/time";
 
@@ -49,7 +49,15 @@ export function checkInvariants(data: CampusData, clock: Clock): Violation[] {
     if (w.refId && done.has(w.refId)) add("DONE_SCHEDULED", w.title);
   }
   const loggedToday = ctx.loggedTodayTotal;
-  const cappedWork = work.filter((w) => { const a = ctx.openAssignments.find((x) => x.id === w.refId); if (!a || a.overdue) return true; const tomorrowMorning = a.dueDate === addDays(clock.date, 1) && toMinutes(a.dueTime) <= toMinutes(data.settings.dayStart) + 120; return !(a.dueDate === clock.date || tomorrowMorning); }).reduce((s, w) => s + w.end - w.start, 0);
+  const tomorrow = addDays(clock.date, 1);
+  let cappedWork = 0;
+  for (const a of ctx.openAssignments) {
+    const w = work.filter((b) => b.refId === a.id).reduce((s, b) => s + b.end - b.start, 0);
+    if (!w) continue;
+    if (a.dueDate === clock.date && !a.overdue) continue; // 오늘 마감은 전부 예외
+    const exempt = a.dueDate === tomorrow ? Math.max(0, a.remainingMinutes - Math.floor(freeMinutesOn(ctx, tomorrow, toMinutes(data.settings.dayStart), toMinutes(a.dueTime)) * TOMORROW_USABLE)) : 0;
+    cappedWork += Math.max(0, w - exempt);
+  }
   if (cappedWork > 0 && loggedToday + cappedWork > PLAN_RULES.maxWorkPerDay) add("CAP_EXCEEDED", `오늘 기록 ${loggedToday}분 + 비긴급 계획 ${cappedWork}분`);
 
   for (const p of priorities.all) if (p.kind === "assignment" && done.has(p.refId)) add("DONE_PRIORITIZED", p.title);

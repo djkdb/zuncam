@@ -74,10 +74,10 @@ export function scoreAssignment(a: AssignmentView): PriorityItem {
   }
   factors.push({ label: IMPORTANCE_TEXT[a.importance], points: IMPORTANCE_POINTS[a.importance] });
   // 총 예상 기준 — 남은 시간 기준이면 진행할수록 점수가 떨어져 순서가 흔들린다 (TS-05)
-  const eff = effortPoints(a.estimatedMinutes);
+  const eff = effortPoints(a.adjustedEstimate);
   const within72 = a.minutesLeft <= 72 * 60;
   factors.push({
-    label: `예상 소요 ${formatDuration(a.estimatedMinutes)}`,
+    label: `예상 소요 ${formatDuration(a.adjustedEstimate)}`,
     points: within72 ? eff : Math.floor(eff / 2),
   });
   if (a.status === "in_progress") factors.push({ label: "이미 진행 중", points: 4 });
@@ -94,7 +94,11 @@ export function scoreAssignment(a: AssignmentView): PriorityItem {
     reason: buildReason(factors),
     facts: [
       leftText,
-      a.loggedMinutes > 0 ? `남은 작업 ${formatDuration(a.remainingMinutes)} (${formatDuration(a.loggedMinutes)} 진행)` : `예상 소요 ${formatDuration(a.estimatedMinutes)}`,
+      a.loggedMinutes > 0
+        ? `남은 작업 ${formatDuration(a.remainingMinutes)} (${formatDuration(a.loggedMinutes)} 진행)`
+        : a.adjustedEstimate !== a.estimatedMinutes
+          ? `예상 소요 ${formatDuration(a.adjustedEstimate)} (보정 전 ${formatDuration(a.estimatedMinutes)})`
+          : `예상 소요 ${formatDuration(a.estimatedMinutes)}`,
       a.subject,
     ].filter(Boolean),
   };

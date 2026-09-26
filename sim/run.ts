@@ -9,7 +9,7 @@ import { addDays } from "../src/lib/time";
 import { checkInvariants, type Violation } from "./invariants";
 import { evaluateCorpus, HOLDOUT } from "./nlpCorpus";
 import { PERSONAS, randomData, randomWeek, rng } from "./personas";
-import { playDay, playWeek, type DayResult, type Policy, type WeekResult } from "./playthrough";
+import { BEHAVIORS, playDay, playWeek, type DayResult, type Policy, type WeekResult } from "./playthrough";
 
 const WEEK_START = "2026-09-21"; // 월요일
 const DATES = Array.from({ length: 7 }, (_, i) => addDays(WEEK_START, i));
@@ -70,9 +70,10 @@ interface Agg {
   switches: number;
   flip: number;
   churn: number;
+  meal: number;
   misinformed: number;
 }
-const empty = (): Agg => ({ days: 0, dueTotal: 0, dueMet: 0, overdueCleared: 0, work: 0, idle: 0, idleDue: 0, late: 0, switches: 0, flip: 0, churn: 0, misinformed: 0 });
+const empty = (): Agg => ({ days: 0, dueTotal: 0, dueMet: 0, overdueCleared: 0, work: 0, idle: 0, idleDue: 0, late: 0, switches: 0, flip: 0, churn: 0, meal: 0, misinformed: 0 });
 function addTo(a: Agg, r: DayResult) {
   a.days++;
   a.dueTotal += r.dueTodayTotal;
@@ -85,6 +86,7 @@ function addTo(a: Agg, r: DayResult) {
   a.switches += r.switches;
   a.flip += r.flipFlops;
   a.churn += r.planChurn;
+  a.meal += r.mealMinutes;
   a.misinformed += r.misinformedMinutes;
 }
 
@@ -112,9 +114,9 @@ const pct = (a: number, b: number) => (b === 0 ? "-" : `${((a / b) * 100).toFixe
 const perDay = (x: number, d: number) => (d === 0 ? "-" : (x / d).toFixed(1));
 
 function aggRow(name: string, a: Agg) {
-  return `| ${name} | ${a.dueMet}/${a.dueTotal} (${pct(a.dueMet, a.dueTotal)}) | ${a.overdueCleared} | ${perDay(a.work, a.days)} | ${perDay(a.idle, a.days)} | ${perDay(a.idleDue, a.days)} | ${perDay(a.late, a.days)} | ${perDay(a.switches, a.days)} | ${a.flip} | ${perDay(a.churn, a.days)} | ${perDay(a.misinformed, a.days)} |`;
+  return `| ${name} | ${a.dueMet}/${a.dueTotal} (${pct(a.dueMet, a.dueTotal)}) | ${a.overdueCleared} | ${perDay(a.work, a.days)} | ${perDay(a.idle, a.days)} | ${perDay(a.idleDue, a.days)} | ${perDay(a.late, a.days)} | ${perDay(a.switches, a.days)} | ${a.flip} | ${perDay(a.churn, a.days)} | ${perDay(a.meal, a.days)} | ${perDay(a.misinformed, a.days)} |`;
 }
-const AGG_HEADER = "| 정책 | 오늘 마감 준수 | 지난 마감 처리 | 과제(분/일) | 할 일 있는데 쉼(분/일) | 오늘 마감 남았는데 쉼(분/일) | 23시 이후(분/일) | 전환(회/일) | 번복 | 계획 흔들림(회/일) | 잘못된 정보로 조언(분/일) |\n|---|---|---|---|---|---|---|---|---|---|---|";
+const AGG_HEADER = "| 정책 | 오늘 마감 준수 | 지난 마감 처리 | 과제(분/일) | 할 일 있는데 쉼(분/일) | 오늘 마감 남았는데 쉼(분/일) | 23시 이후(분/일) | 전환(회/일) | 번복 | 계획 흔들림(회/일) | 식사 조언(분/일) | 잘못된 정보로 조언(분/일) |\n|---|---|---|---|---|---|---|---|---|---|---|---|";
 
 // ── 3) 1주일 재생 ─────────────────────────────────────────────────────────────
 function weeks() {
@@ -131,6 +133,22 @@ function weeks() {
   return table;
 }
 
+// ── 4) 현실적인 학생 (행동 모델 × 1주일) ───────────────────────────────────────
+const BEHAVIOR_POLICIES: Policy[] = ["campus-os", "edf"];
+function behaviorMatrix() {
+  const rows: { load: string; behavior: string; policy: Policy; rs: WeekResult[] }[] = [];
+  for (const load of ["normal", "heavy"] as const) {
+    for (const b of BEHAVIORS) {
+      for (const p of BEHAVIOR_POLICIES) {
+        const rs: WeekResult[] = [];
+        for (let s = 0; s < WEEKS_PER_LOAD; s++) rs.push(playWeek(randomWeek(WEEK_START, rng(5000 + s), load), WEEK_START, p, addDays, b));
+        rows.push({ load, behavior: b.id, policy: p, rs });
+      }
+    }
+  }
+  return rows;
+}
+
 // ── 실행 ─────────────────────────────────────────────────────────────────────
 const list = scenarios();
 const t0 = Date.now();
@@ -139,6 +157,7 @@ const pt = playthrough(list);
 const corpus = evaluateCorpus();
 const holdout = evaluateCorpus(HOLDOUT);
 const week = weeks();
+const matrix = behaviorMatrix();
 const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
 
 const lines: string[] = [];
@@ -166,8 +185,18 @@ for (const [key, rs] of week) {
   const n = rs.length;
   lines.push(`| ${load} | ${p} | ${met}/${dl} (${pct(met, dl)}) | ${(rs.reduce((s, r) => s + r.workMinutes, 0) / n).toFixed(0)} | ${(rs.reduce((s, r) => s + r.maxDayWork, 0) / n).toFixed(0)} | ${(rs.reduce((s, r) => s + r.lateNightMinutes, 0) / n).toFixed(0)} |`);
 }
+lines.push("", `## 4. 현실적인 학생 (1주일, 부하별 ${WEEKS_PER_LOAD}개)`, "");
+for (const b of BEHAVIORS) lines.push(`- **${b.id}**: ${b.label}`);
+lines.push("", "같은 행동 모델을 EDF 기준선에도 똑같이 적용한다. 지난주 완료 과제 3개의 실제 소요시간이 이력으로 남아 있다.", "");
+lines.push("| 부하 | 행동 | 정책 | 마감 준수 | 하루 최대(분) | 23시 이후(분/주) |", "|---|---|---|---|---|---|");
+for (const row of matrix) {
+  const dl = row.rs.reduce((s, r) => s + r.deadlines, 0);
+  const met = row.rs.reduce((s, r) => s + r.met, 0);
+  const n = row.rs.length;
+  lines.push(`| ${row.load} | ${row.behavior} | ${row.policy} | ${met}/${dl} (${pct(met, dl)}) | ${(row.rs.reduce((s, r) => s + r.maxDayWork, 0) / n).toFixed(0)} | ${(row.rs.reduce((s, r) => s + r.lateNightMinutes, 0) / n).toFixed(0)} |`);
+}
 const okCount = corpus.filter((c) => c.ok).length;
-lines.push("", `## 4. 자연어 파서 (규칙 기반)`, "", `### 튜닝 코퍼스`, "", `정확도 **${okCount}/${corpus.length} (${pct(okCount, corpus.length)})**`, "");
+lines.push("", `## 5. 자연어 파서 (규칙 기반)`, "", `### 튜닝 코퍼스`, "", `정확도 **${okCount}/${corpus.length} (${pct(okCount, corpus.length)})**`, "");
 const fails = corpus.filter((c) => !c.ok);
 if (fails.length) {
   lines.push("| 입력 | 불일치 |", "|---|---|");

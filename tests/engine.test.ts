@@ -104,10 +104,18 @@ describe("Action Plan", () => {
     const big = (id: string, dueDate: string, dueTime: string) => ({ id, createdAt: "", updatedAt: "", title: id, subject: "", dueDate, dueTime, estimatedMinutes: 900, importance: 4 as const, status: "todo" as const, memo: "", progress: [] as { date: string; minutes: number }[] });
     const { plan } = run("08:00", (d) => {
       d.assignments = [big("졸업작품", "2026-09-26", "18:00")];
+      d.assignments[0].estimatedMinutes = 400; // 남은 280분 — 내일(토) 18시 전 빈 시간에 충분히 들어감 → 상한 적용
       d.assignments[0].progress.push({ date: TODAY, minutes: 120 }); // 오늘 이미 2시간
     });
     expect(plan.workMinutes).toBe(240);
     expect(plan.warnings.some((w) => w.includes("다음 날로"))).toBe(true);
+  });
+  it("내일 마감인데 내일 빈 시간에 다 안 들어가면, 안 들어가는 만큼은 상한 예외", () => {
+    const { plan } = run("08:00", (d) => {
+      d.assignments = [{ id: "g", createdAt: "", updatedAt: "", title: "졸업작품", subject: "", dueDate: "2026-09-26", dueTime: "18:00", estimatedMinutes: 900, importance: 4, status: "todo", memo: "", progress: [] }];
+    });
+    // 토요일 08~18시 600분 × 0.6 = 360분은 내일 가능 → 540분은 오늘 필요 (상한 360 초과)
+    expect(plan.workMinutes).toBeGreaterThan(360);
   });
   it("내일 아침 마감은 상한 예외 — 대신 과부하 경고", () => {
     const { plan } = run("08:00", (d) => {
@@ -133,6 +141,23 @@ describe("지금 뭐 하지?", () => {
   it("출발 시각이면 이동을 안내한다", () => {
     const { advice } = run("17:22");
     expect(advice.mode).toBe("depart");
+  });
+});
+
+describe("크런치", () => {
+  it("오늘 마감이 식사·휴식 때문에 안 들어가면 그 전까지 식사·휴식을 빼고 경고한다", () => {
+    const { plan } = run("08:00", (d) => {
+      d.events = [];
+      d.assignments = [{ id: "x", createdAt: "", updatedAt: "", title: "기말 보고서", subject: "", dueDate: TODAY, dueTime: "14:00", estimatedMinutes: 240, importance: 4, status: "todo", memo: "", progress: [] }];
+    });
+    // 08:00~14:00 중 운영체제 10~12시 + 이동 → 빈 시간은 빠듯함. 점심을 빼야 더 들어간다
+    expect(plan.crunch).toBe(true);
+    expect(plan.blocks.some((b) => b.type === "meal" && b.start < toMinutes("14:00"))).toBe(false);
+    expect(plan.warnings[0]).toContain("식사·휴식을 줄여야");
+  });
+  it("여유가 있으면 크런치하지 않는다", () => {
+    const { plan } = run("08:00");
+    expect(plan.crunch).toBeFalsy();
   });
 });
 
@@ -167,5 +192,56 @@ describe("진행 기록 · 집중 세션", () => {
       d.assignments.find((a) => a.id === "demo-a1")!.status = "done";
     });
     expect(ctx.activeSession).toBeNull();
+  });
+});
+
+describe("식사 시간 안정성 (TS-15)", () => {
+  it("10분마다 다시 계획해도 '식사' 조언은 하루 120분을 넘지 않고, 점심은 한 시간이다", () => {
+    const data = createDemoData(TODAY);
+    let mealTicks = 0;
+    const lunchEnds = new Set<number>();
+    for (let t = toMinutes("08:00"); t < toMinutes("24:00"); t += 10) {
+      const ctx = buildCampusContext(data, at(fromMinutesSafe(t)));
+      const pr = computePriorities(ctx);
+      const plan = buildActionPlan(ctx, pr.all);
+      const adv = adviseNow(ctx, plan, pr.all);
+      if (adv.mode === "meal") {
+        mealTicks++;
+        if (adv.targetTitle === "점심") lunchEnds.add(adv.end);
+      }
+    }
+    expect(mealTicks * 10).toBeLessThanOrEqual(120);
+    expect(lunchEnds.size).toBe(1);
+  });
+});
+
+function fromMinutesSafe(m: number) {
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+}
+
+describe("예상 소요시간 보정 (TS-12)", () => {
+  const done = (id: string, est: number, actual: number) => ({ id, createdAt: "", updatedAt: "", title: id, subject: "", dueDate: "2026-09-20", dueTime: "23:59", estimatedMinutes: est, importance: 2 as const, status: "done" as const, memo: "", progress: [{ date: "2026-09-20", minutes: actual }] });
+  it("완료 과제의 실제/예상 비율을 학습해 남은 과제에 적용한다", () => {
+    const { ctx } = run("08:00", (d) => d.assignments.push(done("h1", 60, 90), done("h2", 120, 150)));
+    expect(ctx.calibration).toMatchObject({ applied: true, factor: 1.35, samples: 2 });
+    const net = ctx.openAssignments.find((a) => a.id === "demo-a2")!; // 예상 60분
+    expect(net.adjustedEstimate).toBe(80);
+    expect(net.remainingMinutes).toBe(80);
+  });
+  it("차이가 10% 미만이거나 설정이 꺼져 있으면 보정하지 않는다", () => {
+    expect(run("08:00", (d) => d.assignments.push(done("h1", 100, 105), done("h2", 100, 100))).ctx.calibration.applied).toBe(false);
+    const off = run("08:00", (d) => {
+      d.settings.calibrateEstimates = false;
+      d.assignments.push(done("h1", 60, 90), done("h2", 120, 150));
+    }).ctx.calibration;
+    expect(off).toMatchObject({ applied: false, factor: 1, observed: 1.35 });
+  });
+  it("기록이 예상을 넘으면 '10분 남음'이 아니라 예상의 30%(최소 30분)가 남았다고 본다 (TS-14)", () => {
+    const { ctx } = run("08:00", (d) => {
+      d.assignments.find((a) => a.id === "demo-a2")!.progress.push({ date: "2026-09-24", minutes: 70 });
+    });
+    const a = ctx.openAssignments.find((x) => x.id === "demo-a2")!;
+    expect(a.overEstimate).toBe(true);
+    expect(a.remainingMinutes).toBe(30);
   });
 });

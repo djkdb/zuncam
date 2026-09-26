@@ -173,7 +173,9 @@ export function adviseNow(ctx: CampusContext, plan: ActionPlan, priorities: Prio
       mode: "short_gap",
       headline: nextWork
         ? `다음 일정까지 ${formatDuration(gap)} 남은 짧은 틈이에요. ${nextWorkText} 필요한 자료를 미리 열어두세요.`
-        : `다음 일정까지 ${formatDuration(gap)} 남았어요. 짧게 쉬면서 준비물을 챙기세요.`,
+        : nextStop && nextStop.at >= plan.windowEnd
+          ? `오늘 계획이 ${formatDuration(gap)} 뒤에 끝나요. 정리하고 쉬세요.`
+          : `다음 일정까지 ${formatDuration(gap)} 남았어요. 짧게 쉬면서 준비물을 챙기세요.`,
       targetTitle: nextWork?.title ?? upcoming?.title ?? null,
       targetRefId: nextWork?.refId ?? upcoming?.refId ?? null,
       start: now,

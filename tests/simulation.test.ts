@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { checkInvariants } from "../sim/invariants";
 import { evaluateCorpus } from "../sim/nlpCorpus";
-import { PERSONAS, randomData, rng } from "../sim/personas";
+import { PERSONAS, randomData, randomWeek, rng } from "../sim/personas";
 import { playDay } from "../sim/playthrough";
 import { addDays } from "@/lib/time";
 
@@ -28,6 +28,12 @@ describe("시뮬레이션 회귀", () => {
     let flips = 0;
     for (const p of PERSONAS) DATES.forEach((date, i) => (flips += playDay(p.build(date, rng(1000 + i)), date, "campus-os").flipFlops));
     expect(flips).toBe(0);
+  });
+  it("같은 시드는 앞에서 무엇을 생성했든 같은 id·같은 시나리오를 만든다 (TS-17)", () => {
+    const a = JSON.stringify(randomWeek("2026-09-21", rng(5007), "normal"));
+    randomData("2026-09-21", rng(1));
+    randomWeek("2026-09-21", rng(9), "heavy");
+    expect(JSON.stringify(randomWeek("2026-09-21", rng(5007), "normal"))).toBe(a);
   });
   it("자연어 튜닝 코퍼스 전부 통과", () => {
     expect(evaluateCorpus().filter((c) => !c.ok).map((c) => c.text)).toEqual([]);

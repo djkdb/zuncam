@@ -4,7 +4,7 @@ import { ListChecks, Pencil, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { AssignmentForm } from "@/components/forms";
 import { Badge, Button, Card, cx, EmptyState, Modal, ProgressBar, Skeleton } from "@/components/ui";
-import { toAssignmentView } from "@/lib/context/campusContext";
+import { computeCalibration, toAssignmentView } from "@/lib/context/campusContext";
 import { IMPORTANCE_LABEL, STATUS_LABEL, type Assignment, type AssignmentStatus } from "@/lib/domain/types";
 import { scoreAssignment } from "@/lib/engine/priority";
 import { actions, useCampusStore, useClock } from "@/lib/store";
@@ -24,15 +24,16 @@ export default function AssignmentsPage() {
   const [editing, setEditing] = useState<Partial<Assignment> | null>(null);
   const subjects = [...new Set([...data.timetable.map((t) => t.subject), ...data.assignments.map((a) => a.subject)].filter(Boolean))];
 
+  const calibration = useMemo(() => computeCalibration(data), [data]);
   const rows = useMemo(() => {
     const list = data.assignments
       .filter((a) => (tab === "all" ? true : tab === "done" ? a.status === "done" : a.status !== "done"))
       .map((a) => {
-        const view = toAssignmentView(a, clock);
+        const view = toAssignmentView(a, clock, 0, calibration.factor);
         return { view, score: a.status === "done" ? null : scoreAssignment(view).score };
       });
     return list.sort((x, y) => (sort === "priority" ? (y.score ?? -1) - (x.score ?? -1) : x.view.minutesLeft - y.view.minutesLeft));
-  }, [data.assignments, clock, tab, sort]);
+  }, [data.assignments, clock, tab, sort, calibration.factor]);
 
   const counts = { open: data.assignments.filter((a) => a.status !== "done").length, done: data.assignments.filter((a) => a.status === "done").length, all: data.assignments.length };
   const close = () => setEditing(null);
@@ -49,6 +50,15 @@ export default function AssignmentsPage() {
           <Plus className="size-4" /> 과제 추가
         </Button>
       </div>
+
+      {calibration.applied && (
+        <p className="rounded-xl bg-indigo-50 px-4 py-2.5 text-sm text-indigo-900">
+          지난 과제 {calibration.samples}개는 예상보다 평균 <b className="tabular">{calibration.factor.toFixed(2)}배</b> 걸렸어요. 남은 시간과 계획은 보정된 값으로 계산합니다.{" "}
+          <a href="/settings" className="underline">
+            설정
+          </a>
+        </p>
+      )}
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="inline-flex rounded-xl bg-ink-100 p-1">
@@ -94,13 +104,17 @@ export default function AssignmentsPage() {
                     {[
                       a.subject,
                       `${a.dueDate} ${a.dueTime}`,
-                      a.loggedMinutes > 0 ? `${formatDuration(a.loggedMinutes)} / 예상 ${formatDuration(a.estimatedMinutes)}` : `예상 ${formatDuration(a.estimatedMinutes)}`,
+                      a.loggedMinutes > 0
+                        ? `${formatDuration(a.loggedMinutes)} / 예상 ${formatDuration(a.adjustedEstimate)}`
+                        : a.adjustedEstimate !== a.estimatedMinutes && a.status !== "done"
+                          ? `예상 ${formatDuration(a.estimatedMinutes)} → 보정 ${formatDuration(a.adjustedEstimate)}`
+                          : `예상 ${formatDuration(a.estimatedMinutes)}`,
                       `중요도 ${IMPORTANCE_LABEL[a.importance]}`,
                     ]
                       .filter(Boolean)
                       .join(" · ")}
                   </p>
-                  {a.loggedMinutes > 0 && <ProgressBar done={a.loggedMinutes} total={a.estimatedMinutes} />}
+                  {a.loggedMinutes > 0 && <ProgressBar done={a.loggedMinutes} total={a.adjustedEstimate} />}
                   {a.overEstimate && a.status !== "done" && <p className="mt-0.5 text-[11px] text-orange-600">예상 시간을 넘겼어요 — 예상 소요시간을 늘리면 계획이 정확해집니다.</p>}
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1 sm:flex-row sm:items-center sm:gap-2">
