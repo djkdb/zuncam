@@ -46,7 +46,7 @@ export const PLAN_RULES = {
   maxSession: 90,
   /** 세션 사이 휴식 */
   breakBetween: 10,
-  /** 하루 최대 과제 시간 — 비현실적인 계획 방지 (docs/troubleshooting.md) */
+  /** 하루 최대 과제 시간 — 비현실적인 계획 방지 (docs/decisions.md D-06) */
   maxWorkPerDay: 6 * 60,
   /** 계획 시작 시각을 10분 단위로 올림 */
   roundTo: 10,
@@ -60,7 +60,7 @@ const MEALS = [
 /**
  * 오늘 배치할 분량.
  * 마감이 오늘·내일이거나 지났으면 전부, 그보다 멀면 남은 일수로 나눈 하루 몫만 배치한다.
- * (처음에는 모든 과제를 오늘 전부 배치해서, D-5 과제가 밤 12시까지 채워지는 문제가 있었다 — troubleshooting #2)
+ * (처음에는 모든 과제를 오늘 전부 배치해서, D-5 과제가 밤 12시까지 채워지는 문제가 있었다 — docs/troubleshooting.md TS-01)
  */
 export function todayShare(estimatedMinutes: number, daysLeft: number): number {
   if (daysLeft <= 1) return estimatedMinutes;

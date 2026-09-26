@@ -54,7 +54,7 @@ export function Button({ variant = "secondary", size = "md", className, ...props
       type="button"
       {...props}
       className={cx(
-        "inline-flex items-center justify-center gap-1.5 rounded-xl font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+        "inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
         size === "sm" ? "h-8 px-2.5 text-xs" : "h-10 px-4 text-sm",
         VARIANTS[variant],
         className,

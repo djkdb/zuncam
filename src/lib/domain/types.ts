@@ -3,7 +3,7 @@
  *
  * 규칙
  * - 날짜는 로컬 기준 "YYYY-MM-DD", 시간은 "HH:mm" 문자열로 저장한다.
- *   (Date 객체/UTC ISO 문자열을 쓰면 타임존 변환 때문에 마감일이 하루 밀리는 문제가 생긴다 — docs/troubleshooting.md #1)
+ *   (Date 객체/UTC ISO 문자열을 쓰면 타임존 변환 때문에 마감일이 하루 밀릴 수 있다 — docs/decisions.md D-03)
  * - 모든 엔티티는 id / createdAt / updatedAt 을 가진다.
  * - 새 데이터 종류(시험, 동아리, 출석 …)는 여기 타입을 추가하고 CampusData 에 컬렉션을 추가하는 방식으로 확장한다.
  */

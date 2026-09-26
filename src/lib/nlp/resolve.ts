@@ -5,7 +5,7 @@ import { addDays, fromMinutes, toMinutes, weekdayOf } from "../time";
 /**
  * 구조화된 "표현"(ParseOutput) → 실제 데이터 초안.
  * LLM/규칙 파서 모두 날짜를 직접 계산하지 않고 dateType 으로 표현만 넘기며, 여기서 코드로 계산한다.
- * (처음 버전은 LLM 에게 "YYYY-MM-DD" 를 직접 달라고 해서 '다음주 수요일'이 한 주 어긋나는 문제가 있었다 — troubleshooting 참고)
+ * LLM 에게 날짜 계산을 맡기지 않기 위한 설계다 (docs/decisions.md D-04).
  */
 
 export type EventDraft = Omit<CampusEvent, "id" | "createdAt" | "updatedAt">;

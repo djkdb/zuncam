@@ -38,8 +38,8 @@ function readCache(): BriefingCache | null {
 
 /**
  * AI 브리핑: 데이터가 바뀌었거나, 날짜가 바뀌었거나, 60분이 지나면 자동으로 다시 생성한다.
- * 매 분 바뀌는 "남은 시간" 때문에 컨텍스트 자체로 캐시 키를 만들면 매 분 재호출된다 → 원천 데이터로 키를 만든다
- * (docs/troubleshooting.md 참고).
+ * AI 컨텍스트에는 매 분 바뀌는 "남은 시간"이 들어 있어 캐시 키로 쓰면 매 분 재호출된다 → 원천 데이터로 키를 만든다
+ * (docs/decisions.md D-07).
  */
 export function useBriefing(data: CampusData, clock: Clock, context: AIContext, enabled: boolean) {
   const key = hash(JSON.stringify(data));

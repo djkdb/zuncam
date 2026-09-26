@@ -14,7 +14,7 @@ export const AI_MODEL = process.env.ANTHROPIC_MODEL || "claude-opus-5";
 /**
  * 요청 1회 타임아웃. SDK 는 타임아웃도 재시도하므로 최악의 경우 TIMEOUT_MS × (MAX_RETRIES + 1).
  * 이 값은 브라우저 타임아웃(clientApi.ts, 30초)보다 짧아야 한다 — 처음엔 25초×2=50초라
- * 브라우저가 먼저 포기하고 서버는 계속 호출하는 문제가 있었다 (docs/troubleshooting.md #4).
+ * 브라우저가 먼저 포기하고 서버는 계속 호출하는 문제가 있었다 (docs/troubleshooting.md TS-03).
  */
 const TIMEOUT_MS = 12_000;
 const MAX_RETRIES = 1;
