@@ -54,7 +54,8 @@ src/
     ├── integrations/         # 이동시간 Provider(동작), 날씨/캘린더/알림 인터페이스(미구현)
     ├── store.ts              # 저장소 + 시계(데모 시간)
     └── time.ts, korean.ts    # 시간 계산, 한국어 조사
-tests/                        # 엔진·파서·검증 단위 테스트 (Vitest)
+tests/                        # 엔진·파서·검증 단위 테스트 + 시뮬레이션 회귀 (Vitest)
+sim/                          # 시뮬레이션: 페르소나, 불변식, 하루/1주일 재생, 자연어 코퍼스 (docs/simulation.md)
 scripts/mock-anthropic.mjs    # API 키 없이 AI 경로를 재현하는 목 서버
 ```
 
@@ -65,9 +66,12 @@ scripts/mock-anthropic.mjs    # API 키 없이 AI 경로를 재현하는 목 서
 | 엔티티 | 주요 필드 |
 |---|---|
 | `TimetableEntry` | subject, professor, weekday(0~6), startTime, endTime, room, location, memo |
-| `Assignment` | title, subject, dueDate, dueTime, estimatedMinutes, importance(1~4), status(todo/in_progress/done), memo |
+| `Assignment` | title, subject, dueDate, dueTime, estimatedMinutes(총 예상), importance(1~4), status(todo/in_progress/done), memo, **progress[{date, minutes}]** |
 | `CampusEvent` | title, date, startTime, endTime, location, category, memo, travelMinutes(선택) |
 | `UserSettings` | userName, dayStart, dayEnd, reserveMeals, departureBufferMinutes |
+| `CampusData.activeSession` | 집중 세션 {refId, date, startMinutes} \| null — 멈추면 경과 시간이 progress 에 기록 |
+
+남은 시간 = 총 예상 − 진행 기록 합계 (− 진행 중 세션 경과). 기록이 예상을 넘었는데 완료가 아니면 마무리용 10분으로 보고 "예상 수정" 안내.
 
 - 날짜 `YYYY-MM-DD`, 시간 `HH:mm` 문자열 (D-03)
 - localStorage 로드 시 항목 단위로 zod 검증 → 깨진 항목만 제외, JSON 자체가 깨지면 백업 키로 옮기고 새로 시작
@@ -91,9 +95,9 @@ scripts/mock-anthropic.mjs    # API 키 없이 AI 경로를 재현하는 목 서
 | 요인 | 점수 |
 |---|---|
 | 마감 임박도 | 지남 50 · 6h 이내 45 · 24h 38 · 48h 30 · 72h 22 · 7일 12 · 그 외 4 |
-| 남은 시간 < 예상 소요 | +10 |
+| 마감까지 남은 시간 < 남은 작업 | +10 |
 | 중요도 | 낮음 3 · 보통 8 · 높음 14 · 매우 높음 20 |
-| 예상 소요 | 2h↑ 10 · 1h↑ 6 · 30m↑ 3 · 그 외 1 (72h 밖 마감이면 절반) |
+| 예상 소요 (**총 예상** 기준 — 진행해도 순위가 흔들리지 않게, TS-05/06) | 2h↑ 10 · 1h↑ 6 · 30m↑ 3 · 그 외 1 (72h 밖 마감이면 절반) |
 | 진행 중 | +4 |
 | 완료 | 후보에서 제외 |
 
@@ -115,10 +119,11 @@ scripts/mock-anthropic.mjs    # API 키 없이 AI 경로를 재현하는 목 서
 
 1. 계획 구간: `max(설정 시작, 현재 시각을 10분 단위로 올림)` ~ 설정 종료
 2. 고정 일정 + 이동 블록(출발 권장 ~ 시작) 배치
-3. 식사: 12:00/18:00 1시간이 비면 확보, 아니면 30분 단위로 앞뒤 탐색
-4. 빈 시간에 과제를 우선순위 순으로: 최소 25분, 최대 90분, 세션 사이 10분 휴식, 오늘 마감은 마감 시각 전까지만
-5. 마감이 이틀 이상 남은 과제는 **하루 몫**(남은 일수로 나눈 양)만 배치 (TS-01)
-6. 하루 과제 합계 최대 6시간 (D-06)
+3. 식사: 12:00/18:00 1시간이 비면 확보, 아니면 30분 단위로 앞뒤 탐색. 이미 시작된 식사는 제자리 유지 (TS-09)
+4. 빈 시간에 과제 배치: 최소 25분, 최대 90분, 세션 사이 10분 휴식, 오늘 마감은 마감 시각 전까지만
+   - **배치 순서**: 36시간 내 마감 → 마감 순(EDF), 다음 마감 지난 과제, 나머지는 우선순위 점수 순 (D-16, TS-05)
+5. 마감이 이틀 이상 남은 과제는 **오늘 몫** = (남은 + 오늘 한 것) / 남은 일수 − 오늘 한 것 (TS-01, TS-06)
+6. 하루 과제 합계 최대 6시간 — **오늘 이미 기록한 작업 포함**. 오늘·내일 아침 마감은 예외 + 경고 (D-19, TS-07)
 7. 경고: 출발 시각, 오늘 마감인데 시간 부족, 마감 지남, 오늘 충돌
 
 ## "지금 뭐 하지?"
@@ -131,8 +136,9 @@ scripts/mock-anthropic.mjs    # API 키 없이 AI 경로를 재현하는 목 서
 | 계획상 이동 시각 | `depart` |
 | 계획상 식사 | `meal` |
 | 계획상 과제 | `focus` — 대상, 종료 시각, 확보 가능한 시간, 다음 출발/일정 |
-| 다음 일정까지 25분 미만 | `short_gap` |
-| 배치된 작업 없음 | `free` |
+| 집중 세션 진행 중 | `focus` — 세션 대상 유지, 경과 시간, 다음 멈춤 전 기록 안내 (출발·수업이 우선) |
+| 다음 일정까지 25분 미만 | `short_gap` — 다음 과제와 시작 시각 안내 |
+| 배치된 작업 없음 | `free` — 다음 과제/식사 안내 |
 | 하루 계획 종료 | `day_over` |
 
 AI는 이 결정을 바꾸지 못한다 (검증: 대상 제목을 언급하지 않거나 허용되지 않은 시각을 쓰면 폐기).

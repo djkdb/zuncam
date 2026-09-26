@@ -42,6 +42,8 @@ AI에게 모든 판단을 맡기지 않습니다. 우선순위 점수, 계획 �
 | 일정 | CRUD, 카테고리, 이동시간(직접 입력 또는 추정), 출발 권장 시각, 충돌 경고 |
 | 자연어 입력 | "금요일 6시에 친구들이랑 풋살 있어" → 일정 / "자료구조 과제 다음주 수요일까지 2시간" → 과제. 저장 전 미리보기·수정·충돌/중복 확인 |
 | 충돌 분석 | 시간 겹침 · 이동시간 부족을 코드로 판정, AI가 설명과 해결책 제안 |
+| 진행 기록 | "지금 시작" 집중 세션 → 기록하고 멈추기/완료, 과제별 "+ 기록". 남은 시간·오늘 몫·계획이 즉시 다시 계산 |
+| 시뮬레이션 | 가상의 학생 수백 명의 하루·1주일을 재생해 "조언을 따르면 마감을 지키는가"를 측정 (`npm run sim`) |
 | 품질 | 모바일/데스크톱, 로딩·빈 상태·오류 상태, AI 응답 검증과 폴백, localStorage persistence, 내보내기/가져오기 |
 
 모든 AI 결과에는 `AI` / `규칙 기반` 배지가 붙어 어느 경로로 만들어졌는지 보입니다.
@@ -69,6 +71,7 @@ npm test            # 엔진 · 파서 · 검증 단위 테스트 (Vitest)
 npm run typecheck
 npm run build
 npm run mock:ai     # API 키 없이 AI 경로를 시험하는 목 서버 (MODE=ok|badjson|slow)
+npm run sim         # 시뮬레이션 (불변식 15k회, 하루/1주일 재생, 자연어 코퍼스) — -- --write 로 리포트 갱신
 ```
 
 목 서버 사용: `MODE=ok npm run mock:ai` 후 `ANTHROPIC_API_KEY=test ANTHROPIC_BASE_URL=http://localhost:4010 npm run dev`.
@@ -95,10 +98,23 @@ src/app/api/ai       briefing · now · parse · conflicts · status
 | [docs/ai-workflow.md](docs/ai-workflow.md) | AI 기능별 입력·출력·검증·폴백, 목 서버 검증 결과 |
 | [docs/prompt-history.md](docs/prompt-history.md) | 프롬프트 버전과 변경 이력 |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | 실제 발생한 문제와 해결 |
+| [docs/simulation.md](docs/simulation.md) | 시뮬레이션 방법, 발견→수정 전/후 수치, 한계 |
+| [docs/simulation-report.md](docs/simulation-report.md) | 최신 시뮬레이션 결과 (자동 생성) |
 | [docs/decisions.md](docs/decisions.md) | 설계 결정과 이유 |
 | [docs/future-plan.md](docs/future-plan.md) | 향후 확장 |
 | [docs/demo-script.md](docs/demo-script.md) | 2~3분 데모, 중간/최종 발표 구성 |
 | [docs/phase1-analysis.md](docs/phase1-analysis.md) | 착수 시 레포 분석 |
+
+## 시뮬레이션으로 검증한 것
+
+| 지표 | 결과 |
+|---|---|
+| 불변식 검사 15,198회 | 위반 0 |
+| 조언을 따를 때 오늘 마감 준수 | 85.8% (단순 EDF 84.0%) — 최초 78.3%에서 개선 |
+| 1주일 재생 (normal) | 준수율 94.6%로 EDF와 같고, 하루 최대 부담 323분 (EDF 680분), 심야 3분/주 (EDF 54분) |
+| 자연어 규칙 파서 | 튜닝 36/36, 홀드아웃 18/20 |
+
+자세한 내용: [docs/simulation.md](docs/simulation.md)
 
 ## 현재 한계 (솔직하게)
 
@@ -106,3 +122,4 @@ src/app/api/ai       briefing · now · parse · conflicts · status
 - 데이터는 이 브라우저의 localStorage에만 저장됩니다. 기기 간 동기화는 없습니다.
 - 프롬프트는 v1이며, 실제 모델 응답 품질·지연은 아직 측정 전입니다 (`prompt-history.md`).
 - 날씨·외부 캘린더·알림은 인터페이스만 있고 UI에는 없습니다.
+- 시뮬레이션의 가상 학생은 추천을 100% 따르고 예상 소요시간이 정확하다고 가정합니다.
