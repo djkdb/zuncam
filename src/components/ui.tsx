@@ -135,3 +135,13 @@ export const inputCls =
   "h-10 w-full rounded-xl border border-ink-200 bg-white px-3 text-sm text-ink-900 placeholder:text-ink-400 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100";
 export const textareaCls =
   "w-full rounded-xl border border-ink-200 bg-white px-3 py-2 text-sm text-ink-900 placeholder:text-ink-400 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100";
+
+/** 과제 진행률 (기록 / 예상). 예상을 넘으면 주황색 */
+export function ProgressBar({ done, total }: { done: number; total: number }) {
+  const pctDone = Math.min(100, Math.round((done / Math.max(1, total)) * 100));
+  return (
+    <div className="mt-1 h-1 w-full max-w-40 overflow-hidden rounded-full bg-ink-100" aria-label={`진행 ${pctDone}%`}>
+      <div className={cx("h-full rounded-full", done > total ? "bg-orange-400" : "bg-emerald-500")} style={{ width: `${pctDone}%` }} />
+    </div>
+  );
+}

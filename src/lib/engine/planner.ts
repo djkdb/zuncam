@@ -153,8 +153,10 @@ export function buildActionPlan(ctx: CampusContext, priorities: PriorityItem[]):
       const candidates = [meal.ideal[0]];
       for (let s = meal.earliest; s + len <= meal.latest; s += 30) if (s !== meal.ideal[0]) candidates.push(s);
       candidates.sort((a, b) => Math.abs(a - meal.ideal[0]) - Math.abs(b - meal.ideal[0]));
+      // 이미 시작된 식사(s < 지금 < s+len)도 후보로 둔다. 지금 이후만 허용하면 12시가 지나는 순간
+      // 점심이 뒤로 밀리면서 뒤의 과제 블록까지 밀려 계획이 흔들린다 (TS-09)
       const start = candidates.find(
-        (s) => s >= windowStart && s + len <= windowEnd && !busy.some((b) => overlaps(s, s + len, b.start, b.end)),
+        (s) => s + len > windowStart && s >= dayStart && s + len <= windowEnd && !busy.some((b) => overlaps(s, s + len, b.start, b.end)),
       );
       if (start !== undefined) {
         busy.push({ start, end: start + len });

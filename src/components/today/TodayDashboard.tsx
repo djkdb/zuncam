@@ -30,7 +30,7 @@ import { actions, clockActions } from "@/lib/store";
 import { formatDuration, formatKoreanDate, fromMinutes, greeting, type DueTone } from "@/lib/time";
 import { useCampusModel } from "@/lib/useCampusModel";
 import { SourceBadge } from "../SourceBadge";
-import { Badge, Button, Card, cx, EmptyState, inputCls, SectionTitle, Skeleton, Spinner } from "../ui";
+import { Badge, Button, Card, cx, EmptyState, inputCls, ProgressBar, SectionTitle, Skeleton, Spinner } from "../ui";
 import { NowCard } from "./NowCard";
 
 export function TodayDashboard() {
@@ -64,7 +64,7 @@ export function TodayDashboard() {
 
       <div className="grid gap-5 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">
-          <NowCard advice={advice} context={aiContext} />
+          <NowCard advice={advice} context={aiContext} ctx={ctx} />
           <PriorityList items={priorities.items} briefing={briefing.briefing} />
           <Recommendation ctx={ctx} plan={plan} briefing={briefing} />
           <PlanTimeline plan={plan} now={ctx.now.minutes} notes={briefing.briefing?.planNotes ?? {}} />
@@ -368,9 +368,10 @@ function Deadlines({ items }: { items: AssignmentView[] }) {
                 <p className="truncate text-sm font-medium">{a.title}</p>
                 <p className="text-xs text-ink-500">
                   {a.subject && `${a.subject} · `}
-                  {formatDuration(a.estimatedMinutes)}
+                  {a.loggedMinutes > 0 ? `남은 ${formatDuration(a.remainingMinutes)}` : formatDuration(a.estimatedMinutes)}
                   {a.status === "in_progress" && " · 진행 중"}
                 </p>
+                {a.loggedMinutes > 0 && <ProgressBar done={a.loggedMinutes} total={a.estimatedMinutes} />}
               </div>
               <Badge tone={DUE_TONE[a.due.tone]} className="tabular">
                 {a.due.text}

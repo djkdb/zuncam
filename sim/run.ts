@@ -7,7 +7,7 @@ import { writeFileSync } from "node:fs";
 import type { CampusData } from "../src/lib/domain/types";
 import { addDays } from "../src/lib/time";
 import { checkInvariants, type Violation } from "./invariants";
-import { evaluateCorpus } from "./nlpCorpus";
+import { evaluateCorpus, HOLDOUT } from "./nlpCorpus";
 import { PERSONAS, randomData, randomWeek, rng } from "./personas";
 import { playDay, playWeek, type DayResult, type Policy, type WeekResult } from "./playthrough";
 
@@ -69,9 +69,10 @@ interface Agg {
   late: number;
   switches: number;
   flip: number;
+  churn: number;
   misinformed: number;
 }
-const empty = (): Agg => ({ days: 0, dueTotal: 0, dueMet: 0, overdueCleared: 0, work: 0, idle: 0, idleDue: 0, late: 0, switches: 0, flip: 0, misinformed: 0 });
+const empty = (): Agg => ({ days: 0, dueTotal: 0, dueMet: 0, overdueCleared: 0, work: 0, idle: 0, idleDue: 0, late: 0, switches: 0, flip: 0, churn: 0, misinformed: 0 });
 function addTo(a: Agg, r: DayResult) {
   a.days++;
   a.dueTotal += r.dueTodayTotal;
@@ -83,6 +84,7 @@ function addTo(a: Agg, r: DayResult) {
   a.late += r.lateNightMinutes;
   a.switches += r.switches;
   a.flip += r.flipFlops;
+  a.churn += r.planChurn;
   a.misinformed += r.misinformedMinutes;
 }
 
@@ -110,9 +112,9 @@ const pct = (a: number, b: number) => (b === 0 ? "-" : `${((a / b) * 100).toFixe
 const perDay = (x: number, d: number) => (d === 0 ? "-" : (x / d).toFixed(1));
 
 function aggRow(name: string, a: Agg) {
-  return `| ${name} | ${a.dueMet}/${a.dueTotal} (${pct(a.dueMet, a.dueTotal)}) | ${a.overdueCleared} | ${perDay(a.work, a.days)} | ${perDay(a.idle, a.days)} | ${perDay(a.idleDue, a.days)} | ${perDay(a.late, a.days)} | ${perDay(a.switches, a.days)} | ${a.flip} | ${perDay(a.misinformed, a.days)} |`;
+  return `| ${name} | ${a.dueMet}/${a.dueTotal} (${pct(a.dueMet, a.dueTotal)}) | ${a.overdueCleared} | ${perDay(a.work, a.days)} | ${perDay(a.idle, a.days)} | ${perDay(a.idleDue, a.days)} | ${perDay(a.late, a.days)} | ${perDay(a.switches, a.days)} | ${a.flip} | ${perDay(a.churn, a.days)} | ${perDay(a.misinformed, a.days)} |`;
 }
-const AGG_HEADER = "| 정책 | 오늘 마감 준수 | 지난 마감 처리 | 과제(분/일) | 할 일 있는데 쉼(분/일) | 오늘 마감 남았는데 쉼(분/일) | 23시 이후(분/일) | 전환(회/일) | 번복 | 잘못된 정보로 조언(분/일) |\n|---|---|---|---|---|---|---|---|---|---|";
+const AGG_HEADER = "| 정책 | 오늘 마감 준수 | 지난 마감 처리 | 과제(분/일) | 할 일 있는데 쉼(분/일) | 오늘 마감 남았는데 쉼(분/일) | 23시 이후(분/일) | 전환(회/일) | 번복 | 계획 흔들림(회/일) | 잘못된 정보로 조언(분/일) |\n|---|---|---|---|---|---|---|---|---|---|---|";
 
 // ── 3) 1주일 재생 ─────────────────────────────────────────────────────────────
 function weeks() {
@@ -135,6 +137,7 @@ const t0 = Date.now();
 const sw = sweep(list);
 const pt = playthrough(list);
 const corpus = evaluateCorpus();
+const holdout = evaluateCorpus(HOLDOUT);
 const week = weeks();
 const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
 
@@ -164,11 +167,18 @@ for (const [key, rs] of week) {
   lines.push(`| ${load} | ${p} | ${met}/${dl} (${pct(met, dl)}) | ${(rs.reduce((s, r) => s + r.workMinutes, 0) / n).toFixed(0)} | ${(rs.reduce((s, r) => s + r.maxDayWork, 0) / n).toFixed(0)} | ${(rs.reduce((s, r) => s + r.lateNightMinutes, 0) / n).toFixed(0)} |`);
 }
 const okCount = corpus.filter((c) => c.ok).length;
-lines.push("", `## 4. 자연어 파서 (규칙 기반) 코퍼스`, "", `정확도 **${okCount}/${corpus.length} (${pct(okCount, corpus.length)})**`, "");
+lines.push("", `## 4. 자연어 파서 (규칙 기반)`, "", `### 튜닝 코퍼스`, "", `정확도 **${okCount}/${corpus.length} (${pct(okCount, corpus.length)})**`, "");
 const fails = corpus.filter((c) => !c.ok);
 if (fails.length) {
   lines.push("| 입력 | 불일치 |", "|---|---|");
   for (const f of fails) lines.push(`| ${f.text} | ${f.mismatches.join("; ")} |`);
+}
+
+const hOk = holdout.filter((c) => c.ok).length;
+lines.push("", `### 홀드아웃 (튜닝에 쓰지 않은 문장)`, "", `정확도 **${hOk}/${holdout.length} (${pct(hOk, holdout.length)})**`, "");
+if (holdout.some((c) => !c.ok)) {
+  lines.push("| 입력 | 불일치 |", "|---|---|");
+  for (const f of holdout.filter((c) => !c.ok)) lines.push(`| ${f.text} | ${f.mismatches.join("; ")} |`);
 }
 
 const report = lines.join("\n") + "\n";

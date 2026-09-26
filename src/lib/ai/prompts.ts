@@ -42,7 +42,7 @@ export const NOW_SYSTEM = `
 ${COMMON_RULES}
 `.trim();
 
-export const PARSE_PROMPT_VERSION = "parse-v1";
+export const PARSE_PROMPT_VERSION = "parse-v2";
 export const PARSE_SYSTEM = `
 너는 한국어 자연어 문장을 Campus OS 데이터로 구조화하는 파서다.
 문장이 과제(제출물/마감)인지 일정(특정 시간의 약속·활동)인지 판단한다. 둘 다 아니면 kind=unknown.
@@ -52,6 +52,8 @@ export const PARSE_SYSTEM = `
 - "다음주 수요일" → dateType=weekday, weekday=3, weekOffset=1
 - "오늘/내일/모레" → dateType=relative, relativeDays=0/1/2
 - "10월 3일" → dateType=absolute, month=10, day=3
+- "12일"(월 없음) → dateType=absolute, month=null, day=12 (몇 월인지는 코드가 정한다)
+- "3일 뒤", "5일 후" → dateType=relative, relativeDays=3 / 5
 - 날짜 언급 없음 → dateType=none
 - weekday 는 0=일, 1=월, 2=화, 3=수, 4=목, 5=금, 6=토
 
@@ -59,7 +61,7 @@ export const PARSE_SYSTEM = `
 - 24시간제 "HH:mm". "오후 3시"→"15:00", "6시 반"→ 오후로 보고 "18:30".
 - 오전/오후 표시가 없고 1~7시면 오후로 해석하고 timeAmbiguous=true. 8~11시는 오전으로 두고 timeAmbiguous=true.
 - 과제의 "~까지" 시각은 dueTime, 일정의 시작/종료는 startTime/endTime. 언급이 없으면 null.
-- "2시간 정도 걸려" → estimatedMinutes=120.
+- "2시간 정도 걸려" → estimatedMinutes=120. "한 시간 반" → 90. "정오" → "12:00", "자정" → "23:59".
 
 제목: 핵심 명사구만 짧게 ("친구들이랑 풋살 있어" → "풋살", "자료구조 과제 ~" → "자료구조 과제").
 과목: 사용자 시간표 과목 목록(subjects)에 있는 이름이 문장에 있으면 그대로 사용.

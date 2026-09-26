@@ -3,7 +3,7 @@
 import { ListChecks, Pencil, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { AssignmentForm } from "@/components/forms";
-import { Badge, Button, Card, cx, EmptyState, Modal, Skeleton } from "@/components/ui";
+import { Badge, Button, Card, cx, EmptyState, Modal, ProgressBar, Skeleton } from "@/components/ui";
 import { toAssignmentView } from "@/lib/context/campusContext";
 import { IMPORTANCE_LABEL, STATUS_LABEL, type Assignment, type AssignmentStatus } from "@/lib/domain/types";
 import { scoreAssignment } from "@/lib/engine/priority";
@@ -91,8 +91,17 @@ export default function AssignmentsPage() {
                 <div className="min-w-0 flex-1">
                   <p className={cx("truncate font-medium", a.status === "done" && "text-ink-400 line-through")}>{a.title}</p>
                   <p className="tabular text-xs text-ink-500">
-                    {[a.subject, `${a.dueDate} ${a.dueTime}`, `예상 ${formatDuration(a.estimatedMinutes)}`, `중요도 ${IMPORTANCE_LABEL[a.importance]}`].filter(Boolean).join(" · ")}
+                    {[
+                      a.subject,
+                      `${a.dueDate} ${a.dueTime}`,
+                      a.loggedMinutes > 0 ? `${formatDuration(a.loggedMinutes)} / 예상 ${formatDuration(a.estimatedMinutes)}` : `예상 ${formatDuration(a.estimatedMinutes)}`,
+                      `중요도 ${IMPORTANCE_LABEL[a.importance]}`,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </p>
+                  {a.loggedMinutes > 0 && <ProgressBar done={a.loggedMinutes} total={a.estimatedMinutes} />}
+                  {a.overEstimate && a.status !== "done" && <p className="mt-0.5 text-[11px] text-orange-600">예상 시간을 넘겼어요 — 예상 소요시간을 늘리면 계획이 정확해집니다.</p>}
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1 sm:flex-row sm:items-center sm:gap-2">
                   {a.status !== "done" && (
@@ -102,6 +111,25 @@ export default function AssignmentsPage() {
                   )}
                   {score !== null && <span className="tabular text-[11px] text-ink-400">점수 {score}</span>}
                 </div>
+                {a.status !== "done" && (
+                  <select
+                    value=""
+                    onChange={(e) => {
+                      const m = Number(e.target.value);
+                      if (m) actions.logProgress(a.id, m, clock.date);
+                    }}
+                    className="h-8 shrink-0 rounded-lg border border-ink-200 bg-white px-1.5 text-[11px] text-ink-600"
+                    aria-label={`${a.title} 진행 기록`}
+                    title="오늘 한 만큼 기록하면 남은 시간과 계획이 다시 계산됩니다"
+                  >
+                    <option value="">+ 기록</option>
+                    {[15, 30, 60, 90, 120].map((m) => (
+                      <option key={m} value={m}>
+                        {formatDuration(m)}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 <button type="button" onClick={() => setEditing(a)} className="shrink-0 rounded-lg p-1.5 text-ink-400 hover:bg-ink-100 hover:text-ink-700" aria-label={`${a.title} 수정`}>
                   <Pencil className="size-4" />
                 </button>

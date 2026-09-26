@@ -4,8 +4,24 @@
  */
 type JosaPair = "이/가" | "을/를" | "은/는" | "과/와" | "으로/로";
 
+/** 숫자로 끝나면 읽는 소리 기준: 0 영 · 1 일 · 2 이 · 3 삼 · 4 사 · 5 오 · 6 육 · 7 칠 · 8 팔 · 9 구 */
+const DIGIT_BATCHIM: Record<string, { hasBatchim: boolean; isRieul: boolean }> = {
+  "0": { hasBatchim: true, isRieul: false },
+  "1": { hasBatchim: true, isRieul: true },
+  "2": { hasBatchim: false, isRieul: false },
+  "3": { hasBatchim: true, isRieul: false },
+  "4": { hasBatchim: false, isRieul: false },
+  "5": { hasBatchim: false, isRieul: false },
+  "6": { hasBatchim: true, isRieul: false },
+  "7": { hasBatchim: true, isRieul: true },
+  "8": { hasBatchim: true, isRieul: true },
+  "9": { hasBatchim: false, isRieul: false },
+};
+
 function lastHangul(word: string): { hasBatchim: boolean; isRieul: boolean } | null {
   const trimmed = word.trim().replace(/['"’”)\]]+$/, "");
+  const last = trimmed[trimmed.length - 1];
+  if (last && DIGIT_BATCHIM[last]) return DIGIT_BATCHIM[last];
   const ch = trimmed.charCodeAt(trimmed.length - 1);
   if (Number.isNaN(ch) || ch < 0xac00 || ch > 0xd7a3) return null;
   const jong = (ch - 0xac00) % 28;

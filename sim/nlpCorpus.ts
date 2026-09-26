@@ -55,6 +55,33 @@ export const CORPUS: { text: string; expect: Expect }[] = [
   { text: "오늘 뭐하지", expect: { kind: "unknown" } },
 ];
 
+/**
+ * 홀드아웃 — 규칙 파서를 코퍼스에 맞춰 고친 "이후"에 새로 작성한 문장. 이 문장들로는 파서를 튜닝하지 않는다.
+ * 튜닝 코퍼스 정확도와의 차이가 과적합 정도다. (2026-09-26 작성)
+ */
+export const HOLDOUT: { text: string; expect: Expect }[] = [
+  { text: "목요일 오후 4시 반 동아리 공연 연습", expect: { kind: "event", date: "2026-10-01", startTime: "16:30", category: "club" } },
+  { text: "내일 저녁 8시에 엄마랑 저녁", expect: { kind: "event", date: "2026-09-27", startTime: "20:00" } },
+  { text: "월요일 아침 7시 수영", expect: { kind: "event", date: "2026-09-28", startTime: "07:00", category: "exercise" } },
+  { text: "3일 뒤 오후 3시 치과", expect: { kind: "event", date: "2026-09-29", startTime: "15:00", category: "personal" } },
+  { text: "11월 2일 중간고사 9시", expect: { kind: "event", date: "2026-11-02", startTime: "09:00", category: "school" } },
+  { text: "금요일 1시부터 3시까지 조별 모임 도서관에서", expect: { kind: "event", date: "2026-10-02", startTime: "13:00", endTime: "15:00", location: "도서관", category: "school" } },
+  { text: "다음주 수요일 밤 10시 게임 약속", expect: { kind: "event", date: "2026-09-30", startTime: "22:00", category: "appointment" } },
+  { text: "오늘 5시 반 알바", expect: { kind: "event", date: "2026-09-26", startTime: "17:30", category: "personal" } },
+  { text: "모레 오전 11시 교수님 상담", expect: { kind: "event", date: "2026-09-28", startTime: "11:00" } },
+  { text: "화요일 세시 팀플", expect: { kind: "event", date: "2026-09-29", startTime: "15:00", category: "school" } },
+  { text: "운영체제 과제 목요일 자정까지 4시간 예상", expect: { kind: "assignment", dueDate: "2026-10-01", dueTime: "23:59", estimatedMinutes: 240, subject: "운영체제" } },
+  { text: "데이터베이스 레포트 다음주 월요일 오전 9시 마감", expect: { kind: "assignment", dueDate: "2026-09-28", dueTime: "09:00", subject: "데이터베이스" } },
+  { text: "알고리즘 숙제 내일 정오까지 한 시간", expect: { kind: "assignment", dueDate: "2026-09-27", dueTime: "12:00", estimatedMinutes: 60, subject: "알고리즘" } },
+  { text: "영어 에세이 10/7까지 3시간 정도", expect: { kind: "assignment", dueDate: "2026-10-07", estimatedMinutes: 180 } },
+  { text: "글쓰기 과제 금요일까지 중요", expect: { kind: "assignment", dueDate: "2026-10-02", importance: 3, subject: "글쓰기" } },
+  { text: "자료구조 실습 보고서 오늘 밤 12시까지", expect: { kind: "assignment", dueDate: "2026-09-26", subject: "자료구조" } },
+  { text: "선형대수 문제풀이 일요일까지 90분", expect: { kind: "assignment", dueDate: "2026-09-27", estimatedMinutes: 90 } },
+  { text: "통계 퀴즈 준비 화요일까지 30분", expect: { kind: "assignment", dueDate: "2026-09-29", estimatedMinutes: 30 } },
+  { text: "ㅋㅋ", expect: { kind: "unknown" } },
+  { text: "내일 날씨 어때", expect: { kind: "unknown" } },
+];
+
 export interface CorpusResult {
   text: string;
   ok: boolean;
@@ -62,8 +89,8 @@ export interface CorpusResult {
   draft: ParsedDraft;
 }
 
-export function evaluateCorpus(): CorpusResult[] {
-  return CORPUS.map(({ text, expect }) => {
+export function evaluateCorpus(list = CORPUS): CorpusResult[] {
+  return list.map(({ text, expect }) => {
     const draft = toDraft(parseKorean(text, CORPUS_SUBJECTS), CORPUS_TODAY);
     const mismatches: string[] = [];
     if (draft.kind !== expect.kind) mismatches.push(`kind: ${draft.kind} ≠ ${expect.kind}`);

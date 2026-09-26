@@ -1,7 +1,7 @@
 import { josa, q } from "../korean";
 import type { CampusContext } from "../context/campusContext";
 import { formatDuration, fromMinutes } from "../time";
-import type { ActionPlan } from "./planner";
+import { PLAN_RULES, type ActionPlan } from "./planner";
 import type { PriorityItem } from "./priority";
 
 /**
@@ -72,6 +72,8 @@ export function adviseNow(ctx: CampusContext, plan: ActionPlan, priorities: Prio
     });
   }
 
+  const sessionReminder = ctx.activeSession ? [`${q(ctx.activeSession.title, "은/는")} ${formatDuration(ctx.activeSession.elapsed)} 진행했어요. 기록하고 멈추세요.`] : [];
+
   // 1) 지금 진행 중인 고정 일정
   if (ctx.currentBlock) {
     const b = ctx.currentBlock;
@@ -87,6 +89,7 @@ export function adviseNow(ctx: CampusContext, plan: ActionPlan, priorities: Prio
       reasons: [
         `${fromMinutes(b.start)} ~ ${fromMinutes(b.end)} ${b.kind === "class" ? "수업" : "일정"} 진행 중`,
         ...(after ? [`끝난 뒤 ${fromMinutes(after.start)}부터 '${after.title}' 작업이 계획되어 있습니다.`] : []),
+        ...sessionReminder,
       ],
     });
   }
@@ -103,7 +106,28 @@ export function adviseNow(ctx: CampusContext, plan: ActionPlan, priorities: Prio
       start: now,
       end: current.end,
       focusMinutes: 0,
-      reasons: [current.reason, ...(target?.location ? [`장소: ${target.location}`] : [])],
+      reasons: [current.reason, ...(target?.location ? [`장소: ${target.location}`] : []), ...sessionReminder],
+    });
+  }
+  // 3) 집중 세션 진행 중 — 계획보다 사용자가 실제로 시작한 작업을 우선한다
+  if (ctx.activeSession) {
+    const s = ctx.activeSession;
+    const a = ctx.openAssignments.find((x) => x.id === s.refId);
+    const stop = nextStop?.at ?? plan.windowEnd;
+    const end = Math.max(now, Math.min(stop, now + (a?.remainingMinutes ?? 0)));
+    const reasons = [`${fromMinutes(s.startMinutes)}에 시작해 ${formatDuration(s.elapsed)}째 진행 중`];
+    if (a && !a.overEstimate) reasons.push(`남은 작업 약 ${formatDuration(a.remainingMinutes)} · ${a.due.text}`);
+    if (a?.overEstimate) reasons.push("예상 소요시간을 넘겼어요. 끝났다면 완료를, 아니라면 예상 시간을 늘려주세요.");
+    if (nextStop) reasons.push(`${josa(nextStop.label, "이/가")} ${fromMinutes(nextStop.at)}이므로 그 전에 기록하고 멈추세요.`);
+    return base({
+      mode: "focus",
+      headline: `${q(s.title, "을/를")} 계속하세요.`,
+      targetTitle: s.title,
+      targetRefId: s.refId,
+      start: now,
+      end,
+      focusMinutes: end - now,
+      reasons,
     });
   }
   if (current?.type === "meal") {
@@ -139,29 +163,36 @@ export function adviseNow(ctx: CampusContext, plan: ActionPlan, priorities: Prio
     });
   }
 
-  // 3) 계획상 빈 시간
+  // 5) 계획상 빈 시간 — 쉬어도 되는 이유와 다음 작업을 함께 알려준다
   const gap = (nextStop?.at ?? plan.windowEnd) - now;
   const upcoming = plan.blocks.find((p) => p.start > now);
+  const nextWork = plan.blocks.find((p) => p.type === "work" && p.start >= now);
+  const nextWorkText = nextWork ? `${fromMinutes(nextWork.start)}부터 ${q(nextWork.title, "을/를")} 할 차례예요.` : "";
   if (gap < 25) {
     return base({
       mode: "short_gap",
-      headline: `다음 일정까지 ${formatDuration(gap)} 남았어요. 짧게 쉬면서 준비물을 챙기세요.`,
-      targetTitle: upcoming?.title ?? null,
-      targetRefId: upcoming?.refId ?? null,
+      headline: nextWork
+        ? `다음 일정까지 ${formatDuration(gap)} 남은 짧은 틈이에요. ${nextWorkText} 필요한 자료를 미리 열어두세요.`
+        : `다음 일정까지 ${formatDuration(gap)} 남았어요. 짧게 쉬면서 준비물을 챙기세요.`,
+      targetTitle: nextWork?.title ?? upcoming?.title ?? null,
+      targetRefId: nextWork?.refId ?? upcoming?.refId ?? null,
       start: now,
       end: now + gap,
       focusMinutes: 0,
-      reasons: nextStop ? [`${nextStop.label}: ${fromMinutes(nextStop.at)}`] : [],
+      reasons: [...(nextStop ? [`${nextStop.label}: ${fromMinutes(nextStop.at)}`] : []), `${PLAN_RULES.minSession}분보다 짧은 틈에는 과제를 배치하지 않습니다.`],
     });
   }
   const openWork = ctx.openAssignments.length > 0;
+  let headline: string;
+  if (upcoming?.type === "meal") headline = `${fromMinutes(upcoming.start)} ${upcoming.title} 전까지 여유가 있어요.${nextWork ? ` 식사 후 ${nextWorkText}` : ""}`;
+  else if (nextWork) headline = `지금은 비워둔 시간이에요. ${nextWorkText} 그 전까지 자유롭게 쓰세요.`;
+  else if (openWork) headline = "오늘 계획된 과제 분량은 끝났어요. 여유가 있다면 다음 과제를 미리 해도 좋아요.";
+  else headline = "남은 과제가 없어요. 자유 시간을 즐기세요.";
   return base({
     mode: "free",
-    headline: openWork
-      ? `지금은 급하게 배치된 작업이 없어요. ${upcoming ? `${fromMinutes(upcoming.start)} '${upcoming.title}' 전까지` : "지금"} 자유롭게 쓰거나 다음 과제를 미리 시작해도 좋아요.`
-      : "남은 과제가 없어요. 자유 시간을 즐기세요.",
-    targetTitle: upcoming?.title ?? null,
-    targetRefId: upcoming?.refId ?? null,
+    headline,
+    targetTitle: nextWork?.title ?? upcoming?.title ?? null,
+    targetRefId: nextWork?.refId ?? upcoming?.refId ?? null,
     start: now,
     end: upcoming?.start ?? now + gap,
     focusMinutes: 0,

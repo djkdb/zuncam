@@ -163,7 +163,11 @@ export function AssignmentForm({
         <Field label="마감 시각">
           <input type="time" className={inputCls} value={f.dueTime} onChange={(e) => setF({ ...f, dueTime: e.target.value || "23:59" })} />
         </Field>
-        <Field label="예상 소요(분)" hint="남은 작업 기준" error={touched ? errs.est : undefined}>
+        <Field
+          label="총 예상 소요(분)"
+          hint={initial?.progress?.length ? `진행 기록 ${initial.progress.reduce((s, p) => s + p.minutes, 0)}분 · 남은 시간은 자동 계산` : "진행 기록을 남기면 남은 시간이 자동 계산됩니다"}
+          error={touched ? errs.est : undefined}
+        >
           <input type="number" min={5} step={5} className={inputCls} value={f.estimatedMinutes} onChange={(e) => setF({ ...f, estimatedMinutes: Number(e.target.value) })} />
         </Field>
         <Field label="중요도">

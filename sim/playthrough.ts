@@ -33,6 +33,8 @@ export interface DayResult {
   misinformedMinutes: number;
   /** 같은 대상으로 되돌아온 횟수 (A→B→A 가 30분 안에) */
   flipFlops: number;
+  /** 계획 흔들림: 아직 오지 않은 '다음 과제 블록'이 10분 사이에 다른 과제로 바뀌거나 10분 넘게 이동한 횟수 */
+  planChurn: number;
   timeline: string[];
 }
 
@@ -56,12 +58,16 @@ export function playDay(
   const completedAt = new Map<string, number>();
   const start = startMinutes ?? Math.max(7 * 60, toMinutes(data.settings.dayStart));
   const end = toMinutes(data.settings.dayEnd);
-  const res: DayResult = { policy, dueTodayTotal: 0, dueTodayMet: 0, overdueCleared: 0, workMinutes: 0, idleWithWorkMinutes: 0, idleWithDueTodayMinutes: 0, lateNightMinutes: 0, switches: 0, misinformedMinutes: 0, flipFlops: 0, timeline: [] };
+  const res: DayResult = { policy, dueTodayTotal: 0, dueTodayMet: 0, overdueCleared: 0, workMinutes: 0, idleWithWorkMinutes: 0, idleWithDueTodayMinutes: 0, lateNightMinutes: 0, switches: 0, misinformedMinutes: 0, flipFlops: 0, planChurn: 0, timeline: [] };
+  let prevNextWork: { refId: string | null; start: number } | null = null;
   const history: { t: number; target: string | null }[] = [];
 
   for (let t = start; t < end; t += STEP) {
     const clock: Clock = { date, minutes: t };
     const m = runModel(data, clock);
+    const nextWork = m.plan.blocks.find((b) => b.type === "work" && b.start > t + STEP);
+    if (prevNextWork && prevNextWork.start > t + STEP && nextWork && (nextWork.refId !== prevNextWork.refId || Math.abs(nextWork.start - prevNextWork.start) > STEP)) res.planChurn++;
+    prevNextWork = nextWork ? { refId: nextWork.refId, start: nextWork.start } : null;
     const open = data.assignments.filter((a) => a.status !== "done" && (trueRemaining.get(a.id) ?? 0) > 0);
     const busy = m.ctx.currentBlock !== null || m.ctx.todayBlocks.some((b) => b.departAt !== null && b.departAt <= t && t < b.start);
 

@@ -135,3 +135,37 @@ describe("지금 뭐 하지?", () => {
     expect(advice.mode).toBe("depart");
   });
 });
+
+describe("진행 기록 · 집중 세션", () => {
+  const withSession = (d: ReturnType<typeof createDemoData>) => {
+    d.activeSession = { refId: "demo-a1", date: TODAY, startMinutes: toMinutes("16:10") };
+  };
+  it("세션 경과 시간이 남은 시간·오늘 몫·계획에 반영된다", () => {
+    const { ctx, plan, advice } = run("16:50", withSession);
+    const a = ctx.openAssignments.find((x) => x.id === "demo-a1")!;
+    expect(ctx.activeSession?.elapsed).toBe(40);
+    expect(a.remainingMinutes).toBe(120 - 30 - 40);
+    expect(plan.blocks.filter((b) => b.refId === "demo-a1" && b.type === "work").reduce((s, b) => s + b.end - b.start, 0)).toBe(50);
+    expect(advice.mode).toBe("focus");
+    expect(advice.targetRefId).toBe("demo-a1");
+    expect(advice.end).toBeLessThanOrEqual(toMinutes("17:20"));
+  });
+  it("출발 시각이 되면 세션보다 출발이 우선이고, 기록하라고 알려준다", () => {
+    const { advice } = run("17:22", withSession);
+    expect(advice.mode).toBe("depart");
+    expect(advice.reasons.some((r) => r.includes("기록하고 멈추세요"))).toBe(true);
+  });
+  it("오늘 몫은 오늘 이미 한 만큼 줄어든다 (조금씩 할 때마다 다시 생기지 않음)", () => {
+    const { plan } = run("16:10", (d) => {
+      d.assignments.find((a) => a.id === "demo-a3")!.progress.push({ date: TODAY, minutes: 40 });
+    });
+    expect(plan.blocks.some((b) => b.refId === "demo-a3")).toBe(false);
+  });
+  it("완료된 세션 대상은 세션으로 취급하지 않는다", () => {
+    const { ctx } = run("16:50", (d) => {
+      withSession(d);
+      d.assignments.find((a) => a.id === "demo-a1")!.status = "done";
+    });
+    expect(ctx.activeSession).toBeNull();
+  });
+});

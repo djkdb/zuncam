@@ -1,7 +1,7 @@
 import { q } from "../korean";
-import type { Assignment, CampusData, CampusEvent, EventCategory, ISODate, TimetableEntry, UserSettings } from "../domain/types";
+import type { Assignment, CampusData, CampusEvent, EventCategory, FocusSession, ISODate, TimetableEntry, UserSettings } from "../domain/types";
 import { defaultTravelProvider, type TravelEstimate, type TravelTimeProvider } from "../integrations/travel";
-import { addDays, formatDue, minutesUntil, overlaps, toMinutes, weekdayOf, type Clock, type DueLabel } from "../time";
+import { addDays, diffDays, formatDue, minutesUntil, overlaps, toMinutes, weekdayOf, type Clock, type DueLabel } from "../time";
 
 /**
  * Campus Context — 시간표·과제·일정·이동시간·현재 시각을 하나로 합친 "현재 상황" 모델.
@@ -71,6 +71,8 @@ export interface CampusContext {
   doneCount: number;
   /** 오늘 기록된 작업 합계 — 완료된 과제 포함 */
   loggedTodayTotal: number;
+  /** 진행 중인 집중 세션 */
+  activeSession: { refId: string; title: string; startMinutes: number; elapsed: number } | null;
   conflicts: Conflict[];
   counts: { timetable: number; assignments: number; events: number };
 }
@@ -179,10 +181,17 @@ export function detectConflicts(blocks: FixedBlock[]): Conflict[] {
   return conflicts;
 }
 
-export function toAssignmentView(a: Assignment, now: Clock): AssignmentView {
+/** 집중 세션 경과 분 (0 ~ 12시간). 데모 시계를 과거로 돌려도 음수가 되지 않는다 */
+export function sessionElapsed(s: FocusSession, now: Clock): number {
+  const elapsed = diffDays(s.date, now.date) * 1440 + now.minutes - s.startMinutes;
+  return Math.max(0, Math.min(12 * 60, elapsed));
+}
+
+/** unsavedMinutes: 진행 중인 집중 세션의 경과 시간 — 아직 기록 전이지만 계산에는 반영한다 */
+export function toAssignmentView(a: Assignment, now: Clock, unsavedMinutes = 0): AssignmentView {
   const minutesLeft = minutesUntil(now, a.dueDate, a.dueTime);
-  const loggedMinutes = a.progress.reduce((s, p) => s + p.minutes, 0);
-  const loggedToday = a.progress.filter((p) => p.date === now.date).reduce((s, p) => s + p.minutes, 0);
+  const loggedMinutes = a.progress.reduce((s, p) => s + p.minutes, 0) + unsavedMinutes;
+  const loggedToday = a.progress.filter((p) => p.date === now.date).reduce((s, p) => s + p.minutes, 0) + unsavedMinutes;
   const rest = a.estimatedMinutes - loggedMinutes;
   return {
     ...a,
@@ -208,9 +217,11 @@ export function buildCampusContext(
   const currentBlock = todayBlocks.find((b) => b.start <= now.minutes && now.minutes < b.end) ?? null;
   const nextBlock = todayBlocks.find((b) => b.start > now.minutes) ?? null;
 
+  const session = data.activeSession && data.assignments.some((a) => a.id === data.activeSession!.refId && a.status !== "done") ? data.activeSession : null;
+  const elapsed = session ? sessionElapsed(session, now) : 0;
   const openAssignments = data.assignments
     .filter((a) => a.status !== "done")
-    .map((a) => toAssignmentView(a, now))
+    .map((a) => toAssignmentView(a, now, a.id === session?.refId ? elapsed : 0))
     .sort((a, b) => a.minutesLeft - b.minutesLeft);
 
   // 이미 지나간 날짜/시간의 충돌은 의미가 없으므로 오늘 이후 끝나지 않은 것만
@@ -227,7 +238,10 @@ export function buildCampusContext(
     nextBlock,
     openAssignments,
     doneCount: data.assignments.length - openAssignments.length,
-    loggedTodayTotal: data.assignments.reduce((s, a) => s + a.progress.filter((p) => p.date === now.date).reduce((x, p) => x + p.minutes, 0), 0),
+    loggedTodayTotal: data.assignments.reduce((s, a) => s + a.progress.filter((p) => p.date === now.date).reduce((x, p) => x + p.minutes, 0), 0) + elapsed,
+    activeSession: session
+      ? { refId: session.refId, title: data.assignments.find((a) => a.id === session.refId)!.title, startMinutes: session.date === now.date ? session.startMinutes : 0, elapsed }
+      : null,
     conflicts,
     counts: { timetable: data.timetable.length, assignments: data.assignments.length, events: data.events.length },
   };

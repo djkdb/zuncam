@@ -39,7 +39,13 @@ export function resolveDate(spec: DateSpec, today: ISODate): ISODate | null {
       if (spec.relativeDays == null || spec.relativeDays < 0 || spec.relativeDays > 365) return null;
       return addDays(today, spec.relativeDays);
     case "absolute": {
-      if (!spec.month || !spec.day || spec.month > 12 || spec.day > 31) return null;
+      if (!spec.day || spec.day > 31 || (spec.month != null && (spec.month < 1 || spec.month > 12))) return null;
+      if (spec.month == null) {
+        // 일만 있는 경우: 이번 달 그날이 지났으면 다음 달
+        const [ty, tm, td] = today.split("-").map(Number);
+        const [y2, m2] = spec.day >= td ? [ty, tm] : tm === 12 ? [ty + 1, 1] : [ty, tm + 1];
+        return resolveDate({ ...spec, month: m2, day: spec.day }, `${y2}-${String(m2).padStart(2, "0")}-01`);
+      }
       const year = Number(today.slice(0, 4));
       const make = (y: number) => `${y}-${String(spec.month).padStart(2, "0")}-${String(spec.day).padStart(2, "0")}`;
       const candidate = make(year);
@@ -63,12 +69,16 @@ export function normalizeTime(t: string | null | undefined): string | null {
   return `${String(h).padStart(2, "0")}:${m[2]}`;
 }
 
+/**
+ * 순서가 곧 우선순위다. 활동(과외·알바)이 장소(카페)나 동행(친구)보다 구체적이므로
+ * personal 을 appointment 보다 먼저 본다 ("카페에서 과외" → 개인).
+ */
 const CATEGORY_KEYWORDS: [EventCategory, RegExp][] = [
-  ["exercise", /풋살|축구|농구|야구|헬스|운동|러닝|달리기|수영|요가|클라이밍|배드민턴|테니스|탁구/],
-  ["club", /동아리|정기\s*회의|정기모임|학회/],
-  ["school", /수업|세미나|특강|시험|중간고사|기말고사|학교|조별|팀플|면담|보강/],
-  ["appointment", /약속|친구|만나|밥|식사|술|카페|데이트|미팅/],
-  ["personal", /병원|은행|알바|아르바이트|개인|미용실|치과/],
+  ["exercise", /풋살|축구|농구|야구|헬스|운동|러닝|달리기|조깅|산책|등산|자전거|수영|요가|필라테스|클라이밍|배드민턴|테니스|탁구|볼링/],
+  ["club", /동아리|정기\s*회의|정기모임|학회|MT|엠티/],
+  ["school", /수업|세미나|특강|시험|중간고사|기말고사|학교|조별|팀플|면담|보강|스터디/],
+  ["personal", /병원|은행|알바|아르바이트|과외|개인|미용실|치과|교회|성당|예배/],
+  ["appointment", /약속|친구|만나|밥|식사|술|카페|데이트|미팅|생일/],
 ];
 
 export function guessCategory(text: string): EventCategory {

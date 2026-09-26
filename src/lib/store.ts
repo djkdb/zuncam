@@ -1,6 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import { sessionElapsed } from "./context/campusContext";
 import { createDemoData } from "./demo";
 import { parseCampusData } from "./domain/schemas";
 import { emptyCampusData, type Assignment, type AssignmentStatus, type CampusData, type CampusEvent, type TimetableEntry, type UserSettings } from "./domain/types";
@@ -75,6 +76,12 @@ function commit(next: CampusData) {
 const newId = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 const stamp = () => new Date().toISOString();
 
+function withProgress(a: Assignment, minutes: number, date: string): Assignment {
+  const same = a.progress.find((p) => p.date === date);
+  const progress = same ? a.progress.map((p) => (p.date === date ? { ...p, minutes: p.minutes + minutes } : p)) : [...a.progress, { date, minutes }];
+  return { ...a, progress, status: a.status === "todo" ? "in_progress" : a.status, updatedAt: stamp() };
+}
+
 type Draft<T> = Omit<T, "id" | "createdAt" | "updatedAt"> & { id?: string };
 
 function upsert<T extends { id: string; createdAt: string; updatedAt: string }>(list: T[], draft: Draft<T>): T[] {
@@ -101,10 +108,50 @@ export const actions = {
     commit({ ...state.data, assignments: upsert(state.data.assignments, d) });
   },
   setAssignmentStatus(id: string, status: AssignmentStatus) {
-    commit({ ...state.data, assignments: state.data.assignments.map((a) => (a.id === id ? { ...a, status, updatedAt: stamp() } : a)) });
+    commit({
+      ...state.data,
+      assignments: state.data.assignments.map((a) => (a.id === id ? { ...a, status, updatedAt: stamp() } : a)),
+      activeSession: status === "done" && state.data.activeSession?.refId === id ? null : state.data.activeSession,
+    });
   },
   deleteAssignment(id: string) {
-    commit({ ...state.data, assignments: state.data.assignments.filter((x) => x.id !== id) });
+    commit({
+      ...state.data,
+      assignments: state.data.assignments.filter((x) => x.id !== id),
+      activeSession: state.data.activeSession?.refId === id ? null : state.data.activeSession,
+    });
+  },
+  /** 진행 기록 추가 (같은 날짜면 합산). 시작 전이면 진행 중으로 바꾼다 */
+  logProgress(id: string, minutes: number, date: string) {
+    if (minutes <= 0) return;
+    commit({ ...state.data, assignments: state.data.assignments.map((a) => (a.id === id ? withProgress(a, minutes, date) : a)) });
+  },
+  /** "지금 시작" — 집중 세션 시작 */
+  startSession(refId: string, clock: Clock) {
+    commit({
+      ...state.data,
+      activeSession: { refId, date: clock.date, startMinutes: clock.minutes },
+      assignments: state.data.assignments.map((a) => (a.id === refId && a.status === "todo" ? { ...a, status: "in_progress", updatedAt: stamp() } : a)),
+    });
+  },
+  /** 세션 종료 — 경과 시간을 기록하고, markDone 이면 완료 처리 */
+  stopSession(clock: Clock, markDone: boolean): number {
+    const s = state.data.activeSession;
+    if (!s) return 0;
+    const minutes = sessionElapsed(s, clock);
+    commit({
+      ...state.data,
+      activeSession: null,
+      assignments: state.data.assignments.map((a) => {
+        if (a.id !== s.refId) return a;
+        const logged = minutes > 0 ? withProgress(a, minutes, s.date) : a;
+        return markDone ? { ...logged, status: "done", updatedAt: stamp() } : logged;
+      }),
+    });
+    return minutes;
+  },
+  cancelSession() {
+    commit({ ...state.data, activeSession: null });
   },
   saveEvent(d: Draft<CampusEvent>) {
     commit({ ...state.data, events: upsert(state.data.events, d) });
