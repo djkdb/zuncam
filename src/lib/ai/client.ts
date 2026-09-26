@@ -11,7 +11,13 @@ import type { z } from "zod";
  */
 
 export const AI_MODEL = process.env.ANTHROPIC_MODEL || "claude-opus-5";
-const TIMEOUT_MS = 25_000;
+/**
+ * 요청 1회 타임아웃. SDK 는 타임아웃도 재시도하므로 최악의 경우 TIMEOUT_MS × (MAX_RETRIES + 1).
+ * 이 값은 브라우저 타임아웃(clientApi.ts, 30초)보다 짧아야 한다 — 처음엔 25초×2=50초라
+ * 브라우저가 먼저 포기하고 서버는 계속 호출하는 문제가 있었다 (docs/troubleshooting.md #4).
+ */
+const TIMEOUT_MS = 12_000;
+const MAX_RETRIES = 1;
 
 export type AIFailureReason = "no_key" | "timeout" | "rate_limit" | "api_error" | "refusal" | "truncated" | "invalid_json" | "schema_mismatch";
 
@@ -25,7 +31,7 @@ export function isAIEnabled(): boolean {
 
 let client: Anthropic | null = null;
 function getClient(): Anthropic {
-  client ??= new Anthropic({ timeout: TIMEOUT_MS, maxRetries: 1 });
+  client ??= new Anthropic({ timeout: TIMEOUT_MS, maxRetries: MAX_RETRIES });
   return client;
 }
 
@@ -78,7 +84,7 @@ export async function callStructured<S extends z.ZodType>(opts: {
     }
     return { ok: true, data: parsed.data, model: response.model, latencyMs: elapsed() };
   } catch (err) {
-    if (err instanceof Anthropic.APIConnectionTimeoutError) return { ok: false, reason: "timeout", detail: `${TIMEOUT_MS}ms 초과`, latencyMs: elapsed() };
+    if (err instanceof Anthropic.APIConnectionTimeoutError) return { ok: false, reason: "timeout", detail: `${TIMEOUT_MS}ms × ${MAX_RETRIES + 1}회 초과`, latencyMs: elapsed() };
     if (err instanceof Anthropic.RateLimitError) return { ok: false, reason: "rate_limit", detail: err.message, latencyMs: elapsed() };
     if (err instanceof Anthropic.APIError) return { ok: false, reason: "api_error", detail: `${err.status ?? ""} ${err.message}`.trim(), latencyMs: elapsed() };
     return { ok: false, reason: "api_error", detail: err instanceof Error ? err.message : String(err), latencyMs: elapsed() };

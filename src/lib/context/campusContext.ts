@@ -210,3 +210,20 @@ export function buildCampusContext(
     counts: { timetable: data.timetable.length, assignments: data.assignments.length, events: data.events.length },
   };
 }
+
+export type EventDraftLike = Omit<CampusEvent, "id" | "createdAt" | "updatedAt"> & { id?: string };
+
+/** 저장 전 미리보기: 이 일정을 추가/수정하면 생기는 충돌 */
+export function previewEventConflicts(data: CampusData, draft: EventDraftLike, travel: TravelTimeProvider = defaultTravelProvider): Conflict[] {
+  if (!draft.date || !draft.startTime || !draft.endTime || toMinutes(draft.endTime) <= toMinutes(draft.startTime)) return [];
+  const id = draft.id ?? "__draft__";
+  const temp: CampusEvent = { ...draft, id, createdAt: "", updatedAt: "" };
+  const next: CampusData = { ...data, events: [...data.events.filter((e) => e.id !== id), temp] };
+  return detectConflicts(blocksForDate(next, draft.date, travel)).filter((c) => c.a.refId === id || c.b.refId === id);
+}
+
+/** 같은 날짜·시작 시각·제목의 일정이 이미 있는지 (자연어로 같은 문장을 두 번 입력하는 경우) */
+export function findDuplicateEvent(data: CampusData, draft: EventDraftLike): CampusEvent | null {
+  const norm = (s: string) => s.replace(/\s+/g, "").toLowerCase();
+  return data.events.find((e) => e.id !== draft.id && e.date === draft.date && e.startTime === draft.startTime && norm(e.title) === norm(draft.title)) ?? null;
+}

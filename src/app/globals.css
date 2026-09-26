@@ -1,0 +1,38 @@
+@import "tailwindcss";
+
+/*
+ * Campus OS design tokens
+ * - 중립(ink) 팔레트 위에 기능별 색을 하나씩만 쓴다: 수업=blue, 일정=emerald, 이동=amber, 과제=violet, AI=indigo
+ * - 애니메이션은 로딩 표시에만 사용한다
+ */
+@theme {
+  --font-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", system-ui, sans-serif;
+  --color-ink-50: #f7f8fa;
+  --color-ink-100: #eef0f4;
+  --color-ink-200: #dfe3ea;
+  --color-ink-300: #c4cad5;
+  --color-ink-400: #98a1b0;
+  --color-ink-500: #6b7485;
+  --color-ink-600: #4d5566;
+  --color-ink-700: #363c4a;
+  --color-ink-800: #232833;
+  --color-ink-900: #151922;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  @apply bg-ink-50 text-ink-900 antialiased;
+  font-feature-settings: "tnum" 1;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-indigo-500);
+  outline-offset: 2px;
+}
